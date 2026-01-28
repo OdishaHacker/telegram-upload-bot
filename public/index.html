@@ -3,136 +3,216 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Odisha Cloud Storage</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <title>Odisha Uploader</title>
     <style>
-        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; }
-        .glass {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
         }
-        .loader {
-            border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: none; margin: 0 auto;
+        .container {
+            background-color: #1e293b;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        h2 { margin-bottom: 1.5rem; color: #38bdf8; }
+        
+        input[type="text"], input[type="password"], input[type="file"] {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+            border: 1px solid #475569;
+            background-color: #334155;
+            color: white;
+            box-sizing: border-box;
+        }
+        
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #0ea5e9;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover { background-color: #0284c7; }
+
+        /* --- Progress Bar Styles --- */
+        #progress-container {
+            display: none; /* Shuru mein chipa rahega */
+            margin-top: 1.5rem;
+            text-align: left;
+        }
+        .progress-bar-bg {
+            width: 100%;
+            height: 10px;
+            background-color: #334155;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #38bdf8;
+            width: 0%;
+            transition: width 0.2s;
+        }
+        .status-text {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        #result { margin-top: 1rem; word-break: break-all; }
+        .hidden { display: none; }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen bg-[url('https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=2070&auto=format&fit=crop')] bg-cover bg-center bg-no-repeat bg-fixed">
-    
-    <div class="absolute inset-0 bg-black/70"></div> <div id="loginPanel" class="glass relative z-10 p-8 rounded-2xl shadow-2xl w-full max-w-md text-center transform transition-all duration-300">
-        <div class="mb-6">
-            <i class="fa-solid fa-cloud-arrow-up text-5xl text-blue-500"></i>
-        </div>
-        <h2 class="text-2xl font-bold mb-6 text-white">Secure Access</h2>
-        <input type="text" id="user" placeholder="Username" class="w-full p-3 mb-4 bg-slate-800 border border-slate-600 rounded-lg text-white focus:outline-none focus:border-blue-500">
-        <input type="password" id="pass" placeholder="Password" class="w-full p-3 mb-6 bg-slate-800 border border-slate-600 rounded-lg text-white focus:outline-none focus:border-blue-500">
-        <button onclick="doLogin()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all">Login</button>
-        <p id="loginMsg" class="mt-4 text-red-400 text-sm"></p>
-    </div>
+<body>
 
-    <div id="uploadPanel" class="hidden glass relative z-10 p-8 rounded-2xl shadow-2xl w-full max-w-lg text-center">
-        <div class="flex justify-between items-center mb-6">
-            <h2 class="text-xl font-bold text-white">Odisha Uploader</h2>
-            <button onclick="logout()" class="text-sm text-slate-400 hover:text-white">Logout</button>
+    <div class="container">
+        <div id="login-section">
+            <h2>Admin Login</h2>
+            <input type="text" id="username" placeholder="Username">
+            <input type="password" id="password" placeholder="Password">
+            <button onclick="login()">Login</button>
         </div>
 
-        <div class="border-2 border-dashed border-slate-500 rounded-xl p-8 mb-6 hover:border-blue-500 transition-colors cursor-pointer" onclick="document.getElementById('fileInput').click()">
-            <i class="fa-solid fa-file-import text-4xl text-slate-400 mb-2"></i>
-            <p class="text-slate-300">Click to Select File</p>
-            <input type="file" id="fileInput" class="hidden" onchange="showFileName()">
-        </div>
-        
-        <p id="fileName" class="text-sm text-blue-400 mb-4 font-mono"></p>
-        
-        <button onclick="uploadFile()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition-all shadow-lg shadow-emerald-900/50">
-            <i class="fa-solid fa-rocket mr-2"></i> Upload to Cloud
-        </button>
-
-        <div class="loader mt-4" id="loader"></div>
-        
-        <div id="resultArea" class="hidden mt-6 p-4 bg-slate-800/80 rounded-lg border border-slate-600 text-left">
-            <p class="text-xs text-slate-400 mb-1">Download Link Generated:</p>
-            <div class="flex items-center gap-2">
-                <input type="text" id="dlLink" class="w-full bg-black/30 border border-slate-600 rounded px-2 py-1 text-xs text-green-400 font-mono" readonly>
-                <button onclick="copyLink()" class="bg-slate-700 hover:bg-slate-600 px-3 py-1 rounded text-xs">Copy</button>
+        <div id="upload-section" class="hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>Odisha Uploader</h2>
+                <button onclick="logout()" style="width: auto; padding: 0.2rem 0.5rem; font-size: 0.8rem; background: #ef4444;">Logout</button>
             </div>
-            <a id="openLink" href="#" target="_blank" class="block mt-3 text-center text-sm text-blue-400 hover:underline">Open Link</a>
+            
+            <form id="uploadForm">
+                <input type="file" name="file" id="fileInput" required>
+                <button type="submit">🚀 Upload to Cloud</button>
+            </form>
+
+            <div id="progress-container">
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progressBar"></div>
+                </div>
+                <div class="status-text">
+                    <span id="mbCounter">0 MB / 0 MB</span>
+                    <span id="percentCounter">0%</span>
+                </div>
+            </div>
+
+            <div id="result"></div>
         </div>
     </div>
 
     <script>
-        // Check Auth on Load
-        window.onload = async () => {
-            const res = await fetch('/api/check-auth');
-            const data = await res.json();
-            if(data.loggedIn) switchView(true);
-        };
+        // Check Authentication on Load
+        fetch('/api/check-auth')
+            .then(res => res.json())
+            .then(data => {
+                if (data.loggedIn) showUpload();
+            });
 
-        async function doLogin() {
-            const u = document.getElementById('user').value;
-            const p = document.getElementById('pass').value;
-            const res = await fetch('/api/login', {
+        function login() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: u, password: p })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) showUpload();
+                else alert("Wrong Credentials!");
             });
-            const data = await res.json();
-            if(data.success) switchView(true);
-            else document.getElementById('loginMsg').innerText = data.message;
-        }
-
-        function switchView(isLoggedIn) {
-            document.getElementById('loginPanel').style.display = isLoggedIn ? 'none' : 'block';
-            document.getElementById('uploadPanel').style.display = isLoggedIn ? 'block' : 'none';
-        }
-
-        function showFileName() {
-            const file = document.getElementById('fileInput').files[0];
-            if(file) document.getElementById('fileName').innerText = file.name + " (" + (file.size/1024/1024).toFixed(2) + " MB)";
-        }
-
-        async function uploadFile() {
-            const fileInput = document.getElementById('fileInput');
-            if(!fileInput.files[0]) return alert("Please select a file!");
-
-            document.getElementById('loader').style.display = 'block';
-            document.getElementById('resultArea').classList.add('hidden');
-            
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-
-            try {
-                const res = await fetch('/upload', { method: 'POST', body: formData });
-                const data = await res.json();
-                
-                document.getElementById('loader').style.display = 'none';
-                
-                if(data.success) {
-                    document.getElementById('resultArea').classList.remove('hidden');
-                    document.getElementById('dlLink').value = data.link;
-                    document.getElementById('openLink').href = data.link;
-                } else {
-                    alert("Error: " + data.message);
-                }
-            } catch (e) {
-                alert("Upload Failed");
-                document.getElementById('loader').style.display = 'none';
-            }
-        }
-
-        function copyLink() {
-            const copyText = document.getElementById("dlLink");
-            copyText.select();
-            document.execCommand("copy");
-            alert("Link Copied!");
         }
 
         function logout() {
-            fetch('/api/check-auth'); // Mock logout for now or just reload
+            // Simple reload clears session in basic setup, or implementing logout api
             location.reload(); 
         }
+
+        function showUpload() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('upload-section').classList.remove('hidden');
+        }
+
+        // --- NEW UPLOAD LOGIC WITH PROGRESS ---
+        const form = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('fileInput');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progressBar');
+        const mbCounter = document.getElementById('mbCounter');
+        const percentCounter = document.getElementById('percentCounter');
+        const resultDiv = document.getElementById('result');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault(); // Page reload roko
+            
+            const file = fileInput.files[0];
+            if (!file) return alert("Please select a file!");
+
+            // UI Reset
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            mbCounter.innerText = `0 MB / ${(file.size / (1024*1024)).toFixed(2)} MB`;
+            percentCounter.innerText = '0%';
+            resultDiv.innerHTML = '';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const xhr = new XMLHttpRequest();
+
+            // Progress Tracking
+            xhr.upload.onprogress = function(event) {
+                if (event.lengthComputable) {
+                    const percent = (event.loaded / event.total) * 100;
+                    const loadedMB = (event.loaded / (1024 * 1024)).toFixed(2);
+                    const totalMB = (event.total / (1024 * 1024)).toFixed(2);
+
+                    progressBar.style.width = percent + '%';
+                    mbCounter.innerText = `${loadedMB} MB / ${totalMB} MB`;
+                    percentCounter.innerText = Math.round(percent) + '%';
+                }
+            };
+
+            // Upload Complete
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    if (response.success) {
+                        resultDiv.innerHTML = `<p style="color: #4ade80;">✅ Upload Success!</p>
+                                               <p>Download Link:</p>
+                                               <a href="${response.link}" target="_blank" style="color:#38bdf8;">${response.link}</a>`;
+                    } else {
+                        resultDiv.innerHTML = `<p style="color: #ef4444;">❌ Error: ${response.message}</p>`;
+                    }
+                } else {
+                    resultDiv.innerHTML = `<p style="color: #ef4444;">❌ Upload Failed (Server Error)</p>`;
+                }
+            };
+
+            // Error Handling
+            xhr.onerror = function() {
+                resultDiv.innerHTML = `<p style="color: #ef4444;">❌ Network Error!</p>`;
+            };
+
+            xhr.open('POST', '/upload', true);
+            xhr.send(formData);
+        });
     </script>
 </body>
 </html>
