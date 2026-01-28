@@ -1,6 +1,0 @@
-# Iam-Odisha
-
-fastapi
-uvicorn
-aiohttp
-# python-multipart
