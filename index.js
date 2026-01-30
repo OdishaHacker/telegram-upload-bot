@@ -98,10 +98,9 @@ app.get('/dl/:file_id/:filename', async (req, res) => {
         
         // 1. Bot ko pehle file ki details nikaalne dein
         const file = await bot.getFile(fileId);
-
-        // 2. Local API server ka rasta (URL)
-        // Dhyan dein: token se pehle 'bot' hona zaroori hai
-        const localDownloadUrl = `http://tg-server:8081/file/bot${token}/${file.file_path}`;
+        
+        // Local mode mein humein server ka base address aur file_path ko sahi se jodna hota hai
+        const localDownloadUrl = `http://tg-server:8081/file/bot${token}/${file.file_path.replace(/^\//, '')}`;
 
         console.log("Attempting to fetch from:", localDownloadUrl);
 
