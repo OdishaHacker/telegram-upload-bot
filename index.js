@@ -98,9 +98,21 @@ app.get('/dl/:file_id/:filename', async (req, res) => {
         const file = await bot.getFile(req.params.file_id);
         const tgUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
 
-        // 🔥 Direct redirect → unlimited size
-        res.redirect(tgUrl);
-    } catch {
+        const https = require('https');
+
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="${decodeURIComponent(req.params.filename)}"`
+        );
+        res.setHeader('Content-Type', 'application/octet-stream');
+
+        https.get(tgUrl, tgRes => {
+            tgRes.pipe(res);
+        }).on('error', () => {
+            res.status(500).send("Download failed");
+        });
+
+    } catch (err) {
         res.status(500).send("Download failed");
     }
 });
