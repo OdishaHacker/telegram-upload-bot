@@ -4,7 +4,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const session = require('express-session');
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch'); // Naya import
+const fetch = require('node-fetch'); // Yeh zaroori hai
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -60,7 +60,7 @@ app.post('/api/login', (req, res) => {
     res.json({ success: false, message: "Invalid Credentials" });
 });
 
-// ================= UPLOAD (50MB+ Supported) =================
+// ================= UPLOAD (2GB Supported) =================
 app.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.session.loggedIn) return res.status(403).json({ success: false, message: "Unauthorized" });
     if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
@@ -91,13 +91,13 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     }
 });
 
-// ================= DOWNLOAD (CLEAN PATH FIX) =================
+// ================= DOWNLOAD (FIXED FOR STORAGE) =================
 app.get('/dl/:file_id/:filename', async (req, res) => {
     try {
         const fileId = req.params.file_id;
         const file = await bot.getFile(fileId);
 
-        // Path se shuruat ka slash hatao aur double slash clean karo
+        // Path se extra slashes hatata hai taaki local server file dhoond sake
         const cleanPath = file.file_path.replace(/^\/+/, '');
         const localDownloadUrl = `http://tg-server:8081/file/bot${token}/${cleanPath}`;
 
@@ -107,15 +107,17 @@ app.get('/dl/:file_id/:filename', async (req, res) => {
         
         if (!response.ok) {
             console.error(`Status: ${response.status}`);
-            throw new Error("File missing on Local API Server");
+            throw new Error("File not found on local storage. It might have been cleared.");
         }
 
         res.setHeader('Content-Disposition', `attachment; filename="${decodeURIComponent(req.params.filename)}"`);
         res.setHeader('Content-Type', 'application/octet-stream');
+        
+        // File ko stream karna
         response.body.pipe(res);
 
     } catch (err) {
-        console.error("Error:", err.message);
+        console.error("Download Error:", err.message);
         res.status(500).send("Download failed: " + err.message);
     }
 });
