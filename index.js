@@ -49,47 +49,48 @@ app.post('/api/login', (req, res) => {
 app.post('/upload', upload.single('file'), async (req, res) => {
     console.log("\n========== NEW UPLOAD ==========");
 
-    if (!req.session.loggedIn) {
-        console.log("❌ Unauthorized upload attempt");
+    if (!req.session.loggedIn)
         return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
 
-    if (!req.file) {
-        console.log("❌ No file received");
+    if (!req.file)
         return res.status(400).json({ success: false, message: "No file selected" });
-    }
 
-    console.log("📄 File Name :", req.file.originalname);
-    console.log("📦 File Size :", (req.file.size / 1048576).toFixed(2), "MB");
+    console.log("📄 File Name:", req.file.originalname);
+    console.log("📦 File Size:", (req.file.size / 1048576).toFixed(2), "MB");
 
     try {
-        // STEP 1: GET SERVER
+        // STEP 1: GET UPLOAD SERVER + SESSION ID
         console.log("➡️ Step 1: Getting upload server...");
         const serverRes = await axios.get(
             "https://devuploads.com/api/upload/server",
             { params: { key: apiKey } }
         );
 
-        console.log("🌐 Server API Response:", serverRes.data);
-
-        if (!serverRes.data || !serverRes.data.result)
-            throw new Error("Upload server not returned");
+        console.log("🌐 API RESPONSE:", serverRes.data);
 
         const uploadUrl = serverRes.data.result;
 
-        // STEP 2: SESSION ID
-        const sessId = Math.random().toString(36).substring(2) + Date.now();
+        // 🔴 IMPORTANT NOTE:
+        // sess_id RANDOM NAHI BANAANA
+        // API JO sess_id DE → WAHI USE KARNA
+        const sessId = serverRes.data.sess_id;
+
+        if (!uploadUrl || !sessId)
+            throw new Error("Upload URL or sess_id missing from API");
+
         const finalUrl = `${uploadUrl}?sess_id=${sessId}`;
+        console.log("➡️ Uploading to:", finalUrl);
 
-        console.log("➡️ Step 2: Upload URL:", finalUrl);
-
-        // STEP 3: FORM DATA
+        // STEP 2: FORM DATA
         const form = new FormData();
         form.append("sess_id", sessId);
-        form.append("key", apiKey); // IMPORTANT
-        form.append("file", fs.createReadStream(req.file.path), req.file.originalname);
+        form.append(
+            "file",
+            fs.createReadStream(req.file.path),
+            req.file.originalname
+        );
 
-        // STEP 4: UPLOAD
+        // STEP 3: UPLOAD
         const uploadRes = await axios.post(finalUrl, form, {
             headers: {
                 ...form.getHeaders(),
@@ -101,12 +102,13 @@ app.post('/upload', upload.single('file'), async (req, res) => {
             maxContentLength: Infinity
         });
 
-        console.log("📨 Upload Response:", uploadRes.data);
+        console.log("📨 UPLOAD RESPONSE:", uploadRes.data);
 
-        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        if (fs.existsSync(req.file.path))
+            fs.unlinkSync(req.file.path);
 
-        // STEP 5: PARSE RESPONSE
-        let fileCode =
+        // STEP 4: PARSE RESULT
+        const fileCode =
             uploadRes.data?.filecode ||
             uploadRes.data?.result?.[0]?.filecode;
 
@@ -131,7 +133,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 
         res.status(500).json({
             success: false,
-            message: "Upload error (check server logs)"
+            message: "Upload failed (check server logs)"
         });
     }
 });
