@@ -33,50 +33,63 @@ app.get('/api/check-auth', (req, res) => {
 
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
+    console.log("[LOGIN]", username);
+
     if (username === adminUser && password === adminPass) {
         req.session.loggedIn = true;
+        console.log("✅ LOGIN SUCCESS");
         return res.json({ success: true });
     }
+
+    console.log("❌ LOGIN FAILED");
     res.json({ success: false });
 });
 
 // ================= UPLOAD =================
 app.post('/upload', upload.single('file'), async (req, res) => {
-    if (!req.session.loggedIn)
+    console.log("\n========== NEW UPLOAD ==========");
+
+    if (!req.session.loggedIn) {
+        console.log("❌ Unauthorized upload attempt");
         return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
 
-    if (!req.file)
+    if (!req.file) {
+        console.log("❌ No file received");
         return res.status(400).json({ success: false, message: "No file selected" });
+    }
 
-    const filePath = req.file.path;
-    const originalName = req.file.originalname;
+    console.log("📄 File Name :", req.file.originalname);
+    console.log("📦 File Size :", (req.file.size / 1048576).toFixed(2), "MB");
 
     try {
-        console.log("Step 1: Get upload server");
-
-        // 1️⃣ Get Upload Server
+        // STEP 1: GET SERVER
+        console.log("➡️ Step 1: Getting upload server...");
         const serverRes = await axios.get(
             "https://devuploads.com/api/upload/server",
             { params: { key: apiKey } }
         );
 
-        if (!serverRes.data?.result)
-            throw new Error("Upload server not received");
+        console.log("🌐 Server API Response:", serverRes.data);
+
+        if (!serverRes.data || !serverRes.data.result)
+            throw new Error("Upload server not returned");
 
         const uploadUrl = serverRes.data.result;
 
-        // 2️⃣ Generate sess_id (IMPORTANT)
+        // STEP 2: SESSION ID
         const sessId = Math.random().toString(36).substring(2) + Date.now();
-
         const finalUrl = `${uploadUrl}?sess_id=${sessId}`;
-        console.log("Uploading to:", finalUrl);
 
-        // 3️⃣ FormData
+        console.log("➡️ Step 2: Upload URL:", finalUrl);
+
+        // STEP 3: FORM DATA
         const form = new FormData();
         form.append("sess_id", sessId);
-        form.append("file", fs.createReadStream(filePath), originalName);
+        form.append("key", apiKey); // IMPORTANT
+        form.append("file", fs.createReadStream(req.file.path), req.file.originalname);
 
-        // 4️⃣ Upload
+        // STEP 4: UPLOAD
         const uploadRes = await axios.post(finalUrl, form, {
             headers: {
                 ...form.getHeaders(),
@@ -88,35 +101,37 @@ app.post('/upload', upload.single('file'), async (req, res) => {
             maxContentLength: Infinity
         });
 
-        fs.unlinkSync(filePath);
+        console.log("📨 Upload Response:", uploadRes.data);
 
-        // 5️⃣ Extract file code
-        let fileCode = null;
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
-        if (uploadRes.data?.filecode)
-            fileCode = uploadRes.data.filecode;
-        else if (uploadRes.data?.result?.[0]?.filecode)
-            fileCode = uploadRes.data.result[0].filecode;
+        // STEP 5: PARSE RESPONSE
+        let fileCode =
+            uploadRes.data?.filecode ||
+            uploadRes.data?.result?.[0]?.filecode;
 
         if (!fileCode) {
-            console.error("Unknown response:", uploadRes.data);
+            console.log("❌ File code missing");
             return res.json({
                 success: false,
-                message: "Uploaded but file link not received"
+                message: "Upload failed (no file code)"
             });
         }
 
         const link = `https://devuploads.com/${fileCode}`;
-        console.log("SUCCESS:", link);
+        console.log("✅ UPLOAD SUCCESS:", link);
 
         res.json({ success: true, link });
 
     } catch (err) {
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        console.error("UPLOAD ERROR:", err.response?.data || err.message);
+        console.log("🔥 UPLOAD ERROR:", err.response?.data || err.message);
+
+        if (req.file && fs.existsSync(req.file.path))
+            fs.unlinkSync(req.file.path);
+
         res.status(500).json({
             success: false,
-            message: "Upload failed. Check logs."
+            message: "Upload error (check server logs)"
         });
     }
 });
