@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Odisha Cloud Uploader</title>
+    <title>Odisha Cloud</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
-        .container { background: #1e293b; padding: 2rem; border-radius: 1rem; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
         h2 { color: #38bdf8; margin-bottom: 1.5rem; }
         input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border-radius: 0.5rem; border: 1px solid #475569; background: #334155; color: white; box-sizing: border-box; }
         button { width: 100%; padding: 0.75rem; background: #0ea5e9; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: bold; }
@@ -14,13 +14,14 @@
         .hidden { display: none; }
         #progress-container { margin-top: 1.5rem; text-align: left; display: none; }
         .bar-bg { width: 100%; height: 10px; background: #334155; border-radius: 5px; overflow: hidden; }
-        .bar-fill { height: 100%; background: #38bdf8; width: 0%; transition: width 0.2s; }
+        .bar-fill { height: 100%; background: #38bdf8; width: 0%; transition: width 0.1s; }
         .status { font-size: 0.8rem; color: #94a3b8; display: flex; justify-content: space-between; margin-top: 5px; }
+        #result { margin-top: 1.5rem; word-break: break-all; font-size: 0.9rem; }
     </style>
 </head>
 <body>
 
-    <div class="container">
+    <div class="card">
         <div id="login-section">
             <h2>Admin Login</h2>
             <input type="text" id="username" placeholder="Username">
@@ -42,11 +43,14 @@
                     <span id="pc">0%</span>
                 </div>
             </div>
-            <div id="res" style="margin-top: 1rem; word-break: break-all;"></div>
+            <div id="result"></div>
         </div>
     </div>
 
     <script>
+        // Check Session
+        fetch('/api/check-auth').then(r => r.json()).then(d => { if(d.loggedIn) showUpload(); });
+
         function login() {
             const u = document.getElementById('username').value;
             const p = document.getElementById('password').value;
@@ -54,12 +58,15 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: u, password: p })
-            }).then(res => res.json()).then(data => {
-                if (data.success) {
-                    document.getElementById('login-section').classList.add('hidden');
-                    document.getElementById('upload-section').classList.remove('hidden');
-                } else alert("Invalid!");
+            }).then(r => r.json()).then(data => {
+                if (data.success) showUpload();
+                else alert("Invalid Credentials!");
             });
+        }
+
+        function showUpload() {
+            document.getElementById('login-section').classList.add('hidden');
+            document.getElementById('upload-section').classList.remove('hidden');
         }
 
         const form = document.getElementById('uploadForm');
@@ -70,17 +77,34 @@
             fd.append('file', file);
 
             document.getElementById('progress-container').style.display = 'block';
+            document.getElementById('result').innerHTML = "";
+            document.getElementById('upBtn').disabled = true;
+
             const xhr = new XMLHttpRequest();
             xhr.upload.onprogress = (ev) => {
-                const percent = (ev.loaded / ev.total) * 100;
-                document.getElementById('fill').style.width = percent + '%';
-                document.getElementById('mb').innerText = `${(ev.loaded/1048576).toFixed(2)} / ${(ev.total/1048576).toFixed(2)} MB`;
-                document.getElementById('pc').innerText = Math.round(percent) + '%';
+                if (ev.lengthComputable) {
+                    const percent = (ev.loaded / ev.total) * 100;
+                    document.getElementById('fill').style.width = percent + '%';
+                    document.getElementById('mb').innerText = `${(ev.loaded/1048576).toFixed(2)} / ${(ev.total/1048576).toFixed(2)} MB`;
+                    document.getElementById('pc').innerText = Math.round(percent) + '%';
+                }
             };
+
             xhr.onload = () => {
-                const r = JSON.parse(xhr.responseText);
-                document.getElementById('res').innerHTML = r.success ? `<a href="${r.link}" target="_blank" style="color:#4ade80;">Download Link</a>` : "Error!";
+                try {
+                    const r = JSON.parse(xhr.responseText);
+                    if (r.success) {
+                        document.getElementById('result').innerHTML = `<p style="color:#4ade80">✅ Success!</p><a href="${r.link}" target="_blank" style="color:#38bdf8">${r.link}</a>`;
+                    } else {
+                        // YAHAN DETAILED ERROR DIKHEGA
+                        document.getElementById('result').innerHTML = `<p style="color:#ef4444">❌ Error: ${r.message}</p>`;
+                    }
+                } catch (err) {
+                    document.getElementById('result').innerHTML = `<p style="color:#ef4444">❌ Server Error: ${xhr.responseText}</p>`;
+                }
+                document.getElementById('upBtn').disabled = false;
             };
+
             xhr.open('POST', '/upload');
             xhr.send(fd);
         });
