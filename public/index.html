@@ -4,77 +4,167 @@
 <meta charset="UTF-8">
 <title>Odisha Cloud</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
 <style>
-body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#fff;font-family:Segoe UI}
-.card{background:#1e293b;padding:25px;border-radius:14px;width:360px;text-align:center}
-input,button{width:100%;padding:10px;margin-top:10px;border-radius:8px;border:none}
-input{background:#334155;color:#fff}
-button{background:#0ea5e9;color:#fff;font-weight:bold;cursor:pointer}
-.hidden{display:none}
-.bar{width:100%;height:8px;background:#334155;border-radius:6px;margin-top:15px}
-.fill{height:100%;width:0;background:#38bdf8}
-a{color:#38bdf8;word-break:break-all}
+body{
+    margin:0;
+    height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#0f172a;
+    color:#fff;
+    font-family:Segoe UI, sans-serif;
+}
+.card{
+    background:#1e293b;
+    padding:25px;
+    border-radius:14px;
+    width:360px;
+    text-align:center;
+}
+input,button{
+    width:100%;
+    padding:10px;
+    margin-top:10px;
+    border-radius:8px;
+    border:none;
+    box-sizing:border-box;
+}
+input{
+    background:#334155;
+    color:#fff;
+}
+button{
+    background:#0ea5e9;
+    color:#fff;
+    font-weight:bold;
+    cursor:pointer;
+}
+.hidden{
+    display:none;
+}
+.bar{
+    width:100%;
+    height:8px;
+    background:#334155;
+    border-radius:6px;
+    margin-top:15px;
+}
+.fill{
+    height:100%;
+    width:0%;
+    background:#38bdf8;
+}
+a{
+    color:#38bdf8;
+    word-break:break-all;
+}
+#res{
+    margin-top:12px;
+    font-size:14px;
+}
 </style>
 </head>
+
 <body>
 
 <div class="card">
-<div id="login">
-<h3>Admin Login</h3>
-<input id="u" placeholder="Username">
-<input id="p" type="password" placeholder="Password">
-<button onclick="login()">Login</button>
-</div>
 
-<div id="up" class="hidden">
-<h3>Odisha Cloud</h3>
-<input type="file" id="f">
-<button onclick="upload()">Upload</button>
-<div class="bar"><div class="fill" id="fill"></div></div>
-<div id="res"></div>
-</div>
+    <!-- LOGIN -->
+    <div id="login">
+        <h3>Admin Login</h3>
+        <input type="text" id="u" placeholder="Username">
+        <input type="password" id="p" placeholder="Password">
+        <button onclick="login()">Login</button>
+    </div>
+
+    <!-- UPLOAD -->
+    <div id="up" class="hidden">
+        <h3>Odisha Cloud</h3>
+        <input type="file" id="f">
+        <button onclick="upload()">Upload</button>
+
+        <div class="bar">
+            <div class="fill" id="fill"></div>
+        </div>
+
+        <div id="res"></div>
+    </div>
+
 </div>
 
 <script>
-fetch('/api/check-auth').then(r=>r.json()).then(d=>{if(d.loggedIn)show()})
+// ===== CHECK SESSION =====
+fetch('/api/check-auth')
+    .then(r => r.json())
+    .then(d => {
+        if (d.loggedIn) showUpload();
+    });
 
-function login(){
-fetch('/api/login',{
-method:'POST',
-headers:{'Content-Type':'application/json'},
-body:JSON.stringify({username:u.value,password:p.value})
-}).then(r=>r.json()).then(d=>{
-if(d.success)show(); else alert("Wrong login");
-});
+// ===== LOGIN =====
+function login() {
+    const username = document.getElementById('u').value;
+    const password = document.getElementById('p').value;
+
+    fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            showUpload();
+        } else {
+            alert("❌ Invalid Username or Password");
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert("❌ Network Error");
+    });
 }
 
-function show(){
-login.classList.add('hidden');
-up.classList.remove('hidden');
+// ===== SHOW UPLOAD =====
+function showUpload() {
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('up').classList.remove('hidden');
 }
 
-function upload(){
-const file=f.files[0];
-if(!file)return alert("Select file");
+// ===== UPLOAD =====
+function upload() {
+    const file = document.getElementById('f').files[0];
+    if (!file) return alert("Select file first");
 
-const fd=new FormData();
-fd.append('file',file);
+    const fd = new FormData();
+    fd.append('file', file);
 
-const x=new XMLHttpRequest();
-x.upload.onprogress=e=>{
-fill.style.width=(e.loaded/e.total*100)+'%';
-};
-x.onload=()=>{
-try{
-const r=JSON.parse(x.responseText);
-res.innerHTML=r.success?`✅ <a href="${r.link}" target="_blank">${r.link}</a>`:`❌ ${r.message}`;
-}catch{
-res.innerHTML="❌ Server error";
-}
-};
-x.open('POST','/upload');
-x.send(fd);
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+            const p = (e.loaded / e.total) * 100;
+            document.getElementById('fill').style.width = p + '%';
+        }
+    };
+
+    xhr.onload = () => {
+        try {
+            const r = JSON.parse(xhr.responseText);
+            document.getElementById('res').innerHTML =
+                r.success
+                ? `✅ <a href="${r.link}" target="_blank">${r.link}</a>`
+                : `❌ ${r.message}`;
+        } catch {
+            document.getElementById('res').innerText = "❌ Server Error";
+        }
+    };
+
+    xhr.open('POST', '/upload');
+    xhr.send(fd);
 }
 </script>
+
 </body>
 </html>
