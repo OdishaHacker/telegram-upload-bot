@@ -52,59 +52,83 @@
 <body>
 
 <div class="card">
-  <div id="login">
+
+  <!-- LOGIN BOX -->
+  <div id="loginBox">
     <h2>Admin Login</h2>
     <input id="user" placeholder="Username" />
     <input id="pass" type="password" placeholder="Password" />
-    <button onclick="login()">Login</button>
+    <button onclick="doLogin()">Login</button>
   </div>
 
-  <div id="upload" class="hidden">
+  <!-- UPLOAD BOX -->
+  <div id="uploadBox" class="hidden">
     <h2>Odisha Cloud</h2>
     <input type="file" id="file" />
     <button onclick="uploadFile()">Upload</button>
 
-    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div class="bar">
+      <div class="fill" id="fill"></div>
+    </div>
+
     <div id="status"></div>
     <div id="result"></div>
   </div>
+
 </div>
 
 <script>
+const loginBox = document.getElementById("loginBox");
+const uploadBox = document.getElementById("uploadBox");
+
+// CHECK SESSION ON LOAD
 fetch("/api/check-auth")
   .then(r => r.json())
-  .then(d => d.loggedIn && showUpload());
+  .then(d => {
+    if (d.loggedIn) showUpload();
+  });
 
-function login() {
+// LOGIN FUNCTION
+function doLogin() {
   fetch("/api/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      username: user.value,
-      password: pass.value
+      username: document.getElementById("user").value,
+      password: document.getElementById("pass").value
     })
   })
   .then(r => r.json())
-  .then(d => d.success ? showUpload() : alert("Invalid login"));
+  .then(d => {
+    if (d.success) {
+      showUpload();
+    } else {
+      alert("Invalid login");
+    }
+  });
 }
 
+// SHOW UPLOAD UI
 function showUpload() {
-  login.classList.add("hidden");
-  upload.classList.remove("hidden");
+  loginBox.classList.add("hidden");
+  uploadBox.classList.remove("hidden");
 }
 
+// UPLOAD FILE
 function uploadFile() {
-  const f = file.files[0];
+  const f = document.getElementById("file").files[0];
   if (!f) return alert("Select file");
 
   const fd = new FormData();
   fd.append("file", f);
 
   const xhr = new XMLHttpRequest();
+
   xhr.upload.onprogress = e => {
     if (e.lengthComputable) {
-      fill.style.width = (e.loaded / e.total * 100) + "%";
-      status.innerText =
+      const percent = (e.loaded / e.total) * 100;
+      document.getElementById("fill").style.width = percent + "%";
+      document.getElementById("status").innerText =
         (e.loaded / 1048576).toFixed(2) +
         " / " +
         (e.total / 1048576).toFixed(2) +
@@ -115,9 +139,11 @@ function uploadFile() {
   xhr.onload = () => {
     const r = JSON.parse(xhr.responseText);
     if (r.success) {
-      result.innerHTML = `✅ <a href="${r.link}" target="_blank">${r.link}</a>`;
+      document.getElementById("result").innerHTML =
+        `✅ <a href="${r.link}" target="_blank">${r.link}</a>`;
     } else {
-      result.innerHTML = "❌ " + r.message;
+      document.getElementById("result").innerHTML =
+        "❌ " + r.message;
     }
   };
 
