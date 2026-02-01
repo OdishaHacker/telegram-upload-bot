@@ -29,7 +29,6 @@ input,button{
     margin-top:10px;
     border-radius:8px;
     border:none;
-    box-sizing:border-box;
 }
 input{
     background:#334155;
@@ -41,9 +40,7 @@ button{
     font-weight:bold;
     cursor:pointer;
 }
-.hidden{
-    display:none;
-}
+.hidden{display:none}
 .bar{
     width:100%;
     height:8px;
@@ -56,14 +53,8 @@ button{
     width:0%;
     background:#38bdf8;
 }
-a{
-    color:#38bdf8;
-    word-break:break-all;
-}
-#res{
-    margin-top:12px;
-    font-size:14px;
-}
+a{color:#38bdf8;word-break:break-all}
+#res{margin-top:10px;font-size:13px}
 </style>
 </head>
 
@@ -71,71 +62,64 @@ a{
 
 <div class="card">
 
-    <!-- LOGIN -->
-    <div id="login">
-        <h3>Admin Login</h3>
-        <input type="text" id="u" placeholder="Username">
-        <input type="password" id="p" placeholder="Password">
-        <button onclick="login()">Login</button>
+<!-- LOGIN -->
+<div id="login">
+    <h3>Admin Login</h3>
+    <input id="u" placeholder="Username">
+    <input id="p" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+</div>
+
+<!-- UPLOAD -->
+<div id="up" class="hidden">
+    <h3>Odisha Cloud</h3>
+    <input type="file" id="f">
+    <button onclick="upload()">Upload</button>
+
+    <div class="bar">
+        <div class="fill" id="fill"></div>
     </div>
 
-    <!-- UPLOAD -->
-    <div id="up" class="hidden">
-        <h3>Odisha Cloud</h3>
-        <input type="file" id="f">
-        <button onclick="upload()">Upload</button>
-
-        <div class="bar">
-            <div class="fill" id="fill"></div>
-        </div>
-
-        <div id="res"></div>
-    </div>
+    <div id="res"></div>
+</div>
 
 </div>
 
 <script>
-// ===== CHECK SESSION =====
+// CHECK SESSION
 fetch('/api/check-auth')
-    .then(r => r.json())
-    .then(d => {
-        if (d.loggedIn) showUpload();
-    });
+    .then(r=>r.json())
+    .then(d=>{ if(d.loggedIn) showUpload(); });
 
-// ===== LOGIN =====
-function login() {
+// LOGIN
+function login(){
     const username = document.getElementById('u').value;
     const password = document.getElementById('p').value;
 
-    fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+    fetch('/api/login',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({username,password})
     })
-    .then(r => r.json())
-    .then(d => {
-        if (d.success) {
-            showUpload();
-        } else {
-            alert("❌ Invalid Username or Password");
-        }
+    .then(r=>r.json())
+    .then(d=>{
+        if(d.success) showUpload();
+        else alert("❌ Invalid login");
     })
-    .catch(err => {
-        console.error(err);
-        alert("❌ Network Error");
-    });
+    .catch(()=>alert("❌ Network error"));
 }
 
-// ===== SHOW UPLOAD =====
-function showUpload() {
+function showUpload(){
     document.getElementById('login').classList.add('hidden');
     document.getElementById('up').classList.remove('hidden');
 }
 
-// ===== UPLOAD =====
-function upload() {
+// UPLOAD WITH REAL-TIME MB
+function upload(){
     const file = document.getElementById('f').files[0];
-    if (!file) return alert("Select file first");
+    if(!file) return alert("Select file");
+
+    const totalMB = (file.size / 1048576).toFixed(2);
 
     const fd = new FormData();
     fd.append('file', file);
@@ -143,25 +127,29 @@ function upload() {
     const xhr = new XMLHttpRequest();
 
     xhr.upload.onprogress = e => {
-        if (e.lengthComputable) {
-            const p = (e.loaded / e.total) * 100;
-            document.getElementById('fill').style.width = p + '%';
+        if(e.lengthComputable){
+            const percent = (e.loaded / e.total) * 100;
+            const uploadedMB = (e.loaded / 1048576).toFixed(2);
+
+            document.getElementById('fill').style.width = percent + '%';
+            document.getElementById('res').innerHTML =
+                `⬆️ ${uploadedMB} MB / ${totalMB} MB (${percent.toFixed(1)}%)`;
         }
     };
 
     xhr.onload = () => {
-        try {
+        try{
             const r = JSON.parse(xhr.responseText);
             document.getElementById('res').innerHTML =
                 r.success
                 ? `✅ <a href="${r.link}" target="_blank">${r.link}</a>`
                 : `❌ ${r.message}`;
-        } catch {
-            document.getElementById('res').innerText = "❌ Server Error";
+        }catch{
+            document.getElementById('res').innerText = "❌ Server error";
         }
     };
 
-    xhr.open('POST', '/upload');
+    xhr.open('POST','/upload');
     xhr.send(fd);
 }
 </script>
