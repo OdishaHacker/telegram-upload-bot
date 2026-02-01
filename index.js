@@ -10,13 +10,14 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 
 // ================= ENV =================
-const apiKey = process.env.DEVUPLOADS_API_KEY; 
+const apiKey = process.env.DEVUPLOADS_API_KEY;
 const adminUser = process.env.ADMIN_USER || "Admin";
 const adminPass = process.env.ADMIN_PASS || "12345";
 const port = process.env.PORT || 5000;
 
+// ================= SESSION =================
 app.use(session({
-    secret: 'dev_secret_odisha_force',
+    secret: 'odisha_force_secret',
     resave: false,
     saveUninitialized: true
 }));
@@ -25,8 +26,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// AUTH
-app.get('/api/check-auth', (req, res) => res.json({ loggedIn: !!req.session.loggedIn }));
+// ================= AUTH =================
+app.get('/api/check-auth', (req, res) => {
+    res.json({ loggedIn: !!req.session.loggedIn });
+});
+
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
     if (username === adminUser && password === adminPass) {
@@ -36,93 +40,87 @@ app.post('/api/login', (req, res) => {
     res.json({ success: false });
 });
 
-// ================= UPLOAD (FORCE AUTH MODE) =================
+// ================= UPLOAD =================
 app.post('/upload', upload.single('file'), async (req, res) => {
-    if (!req.session.loggedIn) return res.status(403).json({ success: false, message: "Unauthorized" });
-    if (!req.file) return res.status(400).json({ success: false, message: "No file" });
+    if (!req.session.loggedIn)
+        return res.status(403).json({ success: false, message: "Unauthorized" });
+
+    if (!req.file)
+        return res.status(400).json({ success: false, message: "No file selected" });
 
     const filePath = req.file.path;
     const originalName = req.file.originalname;
 
     try {
-        console.log(`Step 1: Getting Server...`);
-        
-        // 1. Get Server JSON
-        const serverRes = await axios.get(`https://devuploads.com/api/upload/server?key=${apiKey}`);
-        
-        if (!serverRes.data || !serverRes.data.result) {
-            throw new Error("Failed to get server info from API");
-        }
+        console.log("Step 1: Get upload server");
+
+        // 1️⃣ Get Upload Server
+        const serverRes = await axios.get(
+            "https://devuploads.com/api/upload/server",
+            { params: { key: apiKey } }
+        );
+
+        if (!serverRes.data?.result)
+            throw new Error("Upload server not received");
 
         const uploadUrl = serverRes.data.result;
-        const sessId = serverRes.data.sess_id;
 
-        console.log(`Session ID Found: ${sessId}`);
+        // 2️⃣ Generate sess_id (IMPORTANT)
+        const sessId = Math.random().toString(36).substring(2) + Date.now();
 
-        if (!sessId) throw new Error("Session ID missing in API response");
+        const finalUrl = `${uploadUrl}?sess_id=${sessId}`;
+        console.log("Uploading to:", finalUrl);
 
-        // 2. FORCE URL (URL mein ID jodna zaroori hai)
-        // Agar URL mein pehle se ? hai to & lagao, nahi to ? lagao
-        const finalUrl = uploadUrl.includes('?') 
-            ? `${uploadUrl}&sess_id=${sessId}` 
-            : `${uploadUrl}?sess_id=${sessId}`;
-            
-        console.log(`Uploading to: ${finalUrl}`);
-
-        // 3. Prepare Form Data
+        // 3️⃣ FormData
         const form = new FormData();
-        // Form mein bhi ID daal dete hain (Double safety)
-        form.append('sess_id', sessId);
-        form.append('upload_type', 'file');
-        form.append('file', fs.createReadStream(filePath), { 
-            filename: originalName,
-            contentType: req.file.mimetype
-        });
+        form.append("sess_id", sessId);
+        form.append("file", fs.createReadStream(filePath), originalName);
 
-        // 4. Send with Real Browser Headers
+        // 4️⃣ Upload
         const uploadRes = await axios.post(finalUrl, form, {
-            headers: { 
+            headers: {
                 ...form.getHeaders(),
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://devuploads.com/',
-                'Origin': 'https://devuploads.com'
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://devuploads.com/",
+                "Origin": "https://devuploads.com"
             },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity
         });
 
-        // Cleanup
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        fs.unlinkSync(filePath);
 
-        // 5. Response Check
-        if (uploadRes.data && uploadRes.status === 200) {
-            let fileCode = "";
-            // Response format handle karna
-            if (uploadRes.data.filecode) fileCode = uploadRes.data.filecode;
-            else if (Array.isArray(uploadRes.data) && uploadRes.data[0]) fileCode = uploadRes.data[0].file_code;
-            else if (uploadRes.data.result && uploadRes.data.result[0]) fileCode = uploadRes.data.result[0].filecode;
+        // 5️⃣ Extract file code
+        let fileCode = null;
 
-            if (fileCode) {
-                console.log("Success! Code:", fileCode);
-                res.json({ success: true, link: `https://devuploads.com/${fileCode}` });
-            } else {
-                console.error("No Link:", uploadRes.data);
-                res.json({ success: false, message: "Upload accepted but link missing." });
-            }
-        } else {
-            res.json({ success: false, message: "Upload Failed" });
+        if (uploadRes.data?.filecode)
+            fileCode = uploadRes.data.filecode;
+        else if (uploadRes.data?.result?.[0]?.filecode)
+            fileCode = uploadRes.data.result[0].filecode;
+
+        if (!fileCode) {
+            console.error("Unknown response:", uploadRes.data);
+            return res.json({
+                success: false,
+                message: "Uploaded but file link not received"
+            });
         }
+
+        const link = `https://devuploads.com/${fileCode}`;
+        console.log("SUCCESS:", link);
+
+        res.json({ success: true, link });
 
     } catch (err) {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        
-        let errorMsg = err.message;
-        if (err.response) {
-            console.error("Server Error HTML:", err.response.data);
-            errorMsg = `Server Error ${err.response.status} - Check Logs`;
-        }
-        res.status(500).json({ success: false, message: errorMsg });
+        console.error("UPLOAD ERROR:", err.response?.data || err.message);
+        res.status(500).json({
+            success: false,
+            message: "Upload failed. Check logs."
+        });
     }
 });
 
-app.listen(port, () => console.log(`Force-Auth Bot running on ${port}`));
+app.listen(port, () => {
+    console.log(`🚀 Odisha Upload Server running on ${port}`);
+});
