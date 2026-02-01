@@ -3,82 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Odisha DevUploader</title>
+    <title>Odisha Cloud Uploader</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #0f172a;
-            color: #e2e8f0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .container {
-            background-color: #1e293b;
-            padding: 2rem;
-            border-radius: 1rem;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-            width: 100%;
-            max-width: 400px;
-            text-align: center;
-        }
-        h2 { margin-bottom: 1.5rem; color: #38bdf8; }
-        
-        input[type="text"], input[type="password"], input[type="file"] {
-            width: 100%;
-            padding: 0.75rem;
-            margin-bottom: 1rem;
-            border-radius: 0.5rem;
-            border: 1px solid #475569;
-            background-color: #334155;
-            color: white;
-            box-sizing: border-box;
-        }
-        
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            background-color: #0ea5e9;
-            color: white;
-            border: none;
-            border-radius: 0.5rem;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        button:hover { background-color: #0284c7; }
-
-        /* --- Progress Bar Styles --- */
-        #progress-container {
-            display: none;
-            margin-top: 1.5rem;
-            text-align: left;
-        }
-        .progress-bar-bg {
-            width: 100%;
-            height: 10px;
-            background-color: #334155;
-            border-radius: 5px;
-            overflow: hidden;
-            margin-bottom: 5px;
-        }
-        .progress-bar-fill {
-            height: 100%;
-            background-color: #38bdf8;
-            width: 0%;
-            transition: width 0.2s;
-        }
-        .status-text {
-            font-size: 0.9rem;
-            color: #94a3b8;
-            display: flex;
-            justify-content: space-between;
-        }
-        
-        #result { margin-top: 1rem; word-break: break-all; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #0f172a; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; overflow: hidden; }
+        .container { background: #1e293b; padding: 2rem; border-radius: 1rem; width: 100%; max-width: 400px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        h2 { color: #38bdf8; margin-bottom: 1.5rem; }
+        input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border-radius: 0.5rem; border: 1px solid #475569; background: #334155; color: white; box-sizing: border-box; }
+        button { width: 100%; padding: 0.75rem; background: #0ea5e9; color: white; border: none; border-radius: 0.5rem; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0284c7; }
         .hidden { display: none; }
+        #progress-container { margin-top: 1.5rem; text-align: left; display: none; }
+        .bar-bg { width: 100%; height: 10px; background: #334155; border-radius: 5px; overflow: hidden; }
+        .bar-fill { height: 100%; background: #38bdf8; width: 0%; transition: width 0.2s; }
+        .status { font-size: 0.8rem; color: #94a3b8; display: flex; justify-content: space-between; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -92,37 +29,24 @@
         </div>
 
         <div id="upload-section" class="hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2>Odisha Cloud</h2>
-                <button onclick="logout()" style="width: auto; padding: 0.2rem 0.5rem; font-size: 0.8rem; background: #ef4444;">Logout</button>
-            </div>
-            
+            <h2>Odisha Cloud</h2>
             <form id="uploadForm">
-                <input type="file" name="file" id="fileInput" required>
-                <button type="submit" id="uploadBtn">🚀 Upload to DevUploads</button>
+                <input type="file" id="fileInput" required>
+                <button type="submit" id="upBtn">🚀 Upload to Cloud</button>
             </form>
 
             <div id="progress-container">
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" id="progressBar"></div>
+                <div class="bar-bg"><div class="bar-fill" id="fill"></div></div>
+                <div class="status">
+                    <span id="mb">0 MB / 0 MB</span>
+                    <span id="pc">0%</span>
                 </div>
-                <div class="status-text">
-                    <span id="mbCounter">0 MB / 0 MB</span>
-                    <span id="percentCounter">0%</span>
-                </div>
-                <p id="uploading-msg" style="font-size: 0.8rem; color: #38bdf8; margin-top: 5px; text-align: center;">Uploading to Cloud... Do not close tab.</p>
             </div>
-
-            <div id="result"></div>
+            <div id="res" style="margin-top: 1rem; word-break: break-all;"></div>
         </div>
     </div>
 
     <script>
-        // Check Auth
-        fetch('/api/check-auth')
-            .then(res => res.json())
-            .then(data => { if (data.loggedIn) showUpload(); });
-
         function login() {
             const u = document.getElementById('username').value;
             const p = document.getElementById('password').value;
@@ -130,247 +54,35 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: u, password: p })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) showUpload();
-                else alert("Wrong Credentials!");
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('upload-section').classList.remove('hidden');
+                } else alert("Invalid!");
             });
         }
 
-        function logout() { location.reload(); }
-
-        function showUpload() {
-            document.getElementById('login-section').classList.add('hidden');
-            document.getElementById('upload-section').classList.remove('hidden');
-        }
-
         const form = document.getElementById('uploadForm');
-        const fileInput = document.getElementById('fileInput');
-        const progressContainer = document.getElementById('progress-container');
-        const progressBar = document.getElementById('progressBar');
-        const mbCounter = document.getElementById('mbCounter');
-        const percentCounter = document.getElementById('percentCounter');
-        const resultDiv = document.getElementById('result');
-        const uploadBtn = document.getElementById('uploadBtn');
-
         form.addEventListener('submit', (e) => {
             e.preventDefault();
-            const file = fileInput.files[0];
-            if (!file) return alert("Select a file!");
+            const file = document.getElementById('fileInput').files[0];
+            const fd = new FormData();
+            fd.append('file', file);
 
-            progressContainer.style.display = 'block';
-            uploadBtn.disabled = true;
-            resultDiv.innerHTML = '';
-
-            const formData = new FormData();
-            formData.append('file', file);
-
+            document.getElementById('progress-container').style.display = 'block';
             const xhr = new XMLHttpRequest();
-            xhr.upload.onprogress = (event) => {
-                if (event.lengthComputable) {
-                    const percent = (event.loaded / event.total) * 100;
-                    progressBar.style.width = percent + '%';
-                    mbCounter.innerText = `${(event.loaded / 1048576).toFixed(2)} MB / ${(event.total / 1048576).toFixed(2)} MB`;
-                    percentCounter.innerText = Math.round(percent) + '%';
-                }
+            xhr.upload.onprogress = (ev) => {
+                const percent = (ev.loaded / ev.total) * 100;
+                document.getElementById('fill').style.width = percent + '%';
+                document.getElementById('mb').innerText = `${(ev.loaded/1048576).toFixed(2)} / ${(ev.total/1048576).toFixed(2)} MB`;
+                document.getElementById('pc').innerText = Math.round(percent) + '%';
             };
-
             xhr.onload = () => {
-                const response = JSON.parse(xhr.responseText);
-                if (response.success) {
-                    resultDiv.innerHTML = `<p style="color: #4ade80;">✅ Success!</p><a href="${response.link}" target="_blank" style="color:#38bdf8;">Download Link</a>`;
-                } else {
-                    resultDiv.innerHTML = `<p style="color: #ef4444;">❌ ${response.message}</p>`;
-                }
-                uploadBtn.disabled = false;
+                const r = JSON.parse(xhr.responseText);
+                document.getElementById('res').innerHTML = r.success ? `<a href="${r.link}" target="_blank" style="color:#4ade80;">Download Link</a>` : "Error!";
             };
-
-            xhr.open('POST', '/upload', true);
-            xhr.send(formData);
-        });
-    </script>
-</body>
-</html>
-            box-sizing: border-box;
-        }
-        
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            background-color: #0ea5e9;
-            color: white;
-            border: none;
-            border-radius: 0.5rem;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        button:hover { background-color: #0284c7; }
-
-        /* --- Progress Bar Styles --- */
-        #progress-container {
-            display: none; /* Shuru mein chipa rahega */
-            margin-top: 1.5rem;
-            text-align: left;
-        }
-        .progress-bar-bg {
-            width: 100%;
-            height: 10px;
-            background-color: #334155;
-            border-radius: 5px;
-            overflow: hidden;
-            margin-bottom: 5px;
-        }
-        .progress-bar-fill {
-            height: 100%;
-            background-color: #38bdf8;
-            width: 0%;
-            transition: width 0.2s;
-        }
-        .status-text {
-            font-size: 0.9rem;
-            color: #94a3b8;
-            display: flex;
-            justify-content: space-between;
-        }
-        
-        #result { margin-top: 1rem; word-break: break-all; }
-        .hidden { display: none; }
-    </style>
-</head>
-<body>
-
-    <div class="container">
-        <div id="login-section">
-            <h2>Admin Login</h2>
-            <input type="text" id="username" placeholder="Username">
-            <input type="password" id="password" placeholder="Password">
-            <button onclick="login()">Login</button>
-        </div>
-
-        <div id="upload-section" class="hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2>Odisha Uploader</h2>
-                <button onclick="logout()" style="width: auto; padding: 0.2rem 0.5rem; font-size: 0.8rem; background: #ef4444;">Logout</button>
-            </div>
-            
-            <form id="uploadForm">
-                <input type="file" name="file" id="fileInput" required>
-                <button type="submit">🚀 Upload to Cloud</button>
-            </form>
-
-            <div id="progress-container">
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" id="progressBar"></div>
-                </div>
-                <div class="status-text">
-                    <span id="mbCounter">0 MB / 0 MB</span>
-                    <span id="percentCounter">0%</span>
-                </div>
-            </div>
-
-            <div id="result"></div>
-        </div>
-    </div>
-
-    <script>
-        // Check Authentication on Load
-        fetch('/api/check-auth')
-            .then(res => res.json())
-            .then(data => {
-                if (data.loggedIn) showUpload();
-            });
-
-        function login() {
-            const u = document.getElementById('username').value;
-            const p = document.getElementById('password').value;
-            fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: u, password: p })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) showUpload();
-                else alert("Wrong Credentials!");
-            });
-        }
-
-        function logout() {
-            // Simple reload clears session in basic setup, or implementing logout api
-            location.reload(); 
-        }
-
-        function showUpload() {
-            document.getElementById('login-section').classList.add('hidden');
-            document.getElementById('upload-section').classList.remove('hidden');
-        }
-
-        // --- NEW UPLOAD LOGIC WITH PROGRESS ---
-        const form = document.getElementById('uploadForm');
-        const fileInput = document.getElementById('fileInput');
-        const progressContainer = document.getElementById('progress-container');
-        const progressBar = document.getElementById('progressBar');
-        const mbCounter = document.getElementById('mbCounter');
-        const percentCounter = document.getElementById('percentCounter');
-        const resultDiv = document.getElementById('result');
-
-        form.addEventListener('submit', (e) => {
-            e.preventDefault(); // Page reload roko
-            
-            const file = fileInput.files[0];
-            if (!file) return alert("Please select a file!");
-
-            // UI Reset
-            progressContainer.style.display = 'block';
-            progressBar.style.width = '0%';
-            mbCounter.innerText = `0 MB / ${(file.size / (1024*1024)).toFixed(2)} MB`;
-            percentCounter.innerText = '0%';
-            resultDiv.innerHTML = '';
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const xhr = new XMLHttpRequest();
-
-            // Progress Tracking
-            xhr.upload.onprogress = function(event) {
-                if (event.lengthComputable) {
-                    const percent = (event.loaded / event.total) * 100;
-                    const loadedMB = (event.loaded / (1024 * 1024)).toFixed(2);
-                    const totalMB = (event.total / (1024 * 1024)).toFixed(2);
-
-                    progressBar.style.width = percent + '%';
-                    mbCounter.innerText = `${loadedMB} MB / ${totalMB} MB`;
-                    percentCounter.innerText = Math.round(percent) + '%';
-                }
-            };
-
-            // Upload Complete
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    const response = JSON.parse(xhr.responseText);
-                    if (response.success) {
-                        resultDiv.innerHTML = `<p style="color: #4ade80;">✅ Upload Success!</p>
-                                               <p>Download Link:</p>
-                                               <a href="${response.link}" target="_blank" style="color:#38bdf8;">${response.link}</a>`;
-                    } else {
-                        resultDiv.innerHTML = `<p style="color: #ef4444;">❌ Error: ${response.message}</p>`;
-                    }
-                } else {
-                    resultDiv.innerHTML = `<p style="color: #ef4444;">❌ Upload Failed (Server Error)</p>`;
-                }
-            };
-
-            // Error Handling
-            xhr.onerror = function() {
-                resultDiv.innerHTML = `<p style="color: #ef4444;">❌ Network Error!</p>`;
-            };
-
-            xhr.open('POST', '/upload', true);
-            xhr.timeout = 0; // ✅ unlimited time (2GB upload fix)
-            xhr.send(formData);
+            xhr.open('POST', '/upload');
+            xhr.send(fd);
         });
     </script>
 </body>
