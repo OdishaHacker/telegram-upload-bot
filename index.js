@@ -16,7 +16,7 @@ const adminPass = process.env.ADMIN_PASS || "12345";
 const port = process.env.PORT || 5000;
 
 app.use(session({
-    secret: 'dev_secret_odisha_final',
+    secret: 'dev_secret_odisha_force',
     resave: false,
     saveUninitialized: true
 }));
@@ -36,7 +36,7 @@ app.post('/api/login', (req, res) => {
     res.json({ success: false });
 });
 
-// ================= UPLOAD (FIXED JSON LOGIC) =================
+// ================= UPLOAD (FORCE AUTH MODE) =================
 app.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.session.loggedIn) return res.status(403).json({ success: false, message: "Unauthorized" });
     if (!req.file) return res.status(400).json({ success: false, message: "No file" });
@@ -45,7 +45,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     const originalName = req.file.originalname;
 
     try {
-        console.log(`Step 1: Fetching Server for Key: ${apiKey.substring(0, 5)}...`);
+        console.log(`Step 1: Getting Server...`);
         
         // 1. Get Server JSON
         const serverRes = await axios.get(`https://devuploads.com/api/upload/server?key=${apiKey}`);
@@ -54,34 +54,38 @@ app.post('/upload', upload.single('file'), async (req, res) => {
             throw new Error("Failed to get server info from API");
         }
 
-        // 🛠️ YAHAN THI GALTI - AB THEEK HAI
-        // URL se nahi, balki direct JSON property se ID nikalo
         const uploadUrl = serverRes.data.result;
-        const sessId = serverRes.data.sess_id; // Ye raha asli sess_id!
+        const sessId = serverRes.data.sess_id;
 
-        console.log(`URL: ${uploadUrl}`);
-        console.log(`Session ID: ${sessId}`); // Ab ye print hoga!
+        console.log(`Session ID Found: ${sessId}`);
 
-        if (!sessId) {
-             throw new Error("Session ID not found in API response!");
-        }
+        if (!sessId) throw new Error("Session ID missing in API response");
 
-        // 2. Prepare Form Data
+        // 2. FORCE URL (URL mein ID jodna zaroori hai)
+        // Agar URL mein pehle se ? hai to & lagao, nahi to ? lagao
+        const finalUrl = uploadUrl.includes('?') 
+            ? `${uploadUrl}&sess_id=${sessId}` 
+            : `${uploadUrl}?sess_id=${sessId}`;
+            
+        console.log(`Uploading to: ${finalUrl}`);
+
+        // 3. Prepare Form Data
         const form = new FormData();
-        form.append('key', apiKey);
-        form.append('sess_id', sessId); // Ab ye sahi se jayega
+        // Form mein bhi ID daal dete hain (Double safety)
+        form.append('sess_id', sessId);
         form.append('upload_type', 'file');
-        
         form.append('file', fs.createReadStream(filePath), { 
             filename: originalName,
             contentType: req.file.mimetype
         });
 
-        // 3. Send with Browser Headers
-        const uploadRes = await axios.post(uploadUrl, form, {
+        // 4. Send with Real Browser Headers
+        const uploadRes = await axios.post(finalUrl, form, {
             headers: { 
                 ...form.getHeaders(),
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://devuploads.com/',
+                'Origin': 'https://devuploads.com'
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity
@@ -90,22 +94,23 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         // Cleanup
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-        // 4. Handle Response
+        // 5. Response Check
         if (uploadRes.data && uploadRes.status === 200) {
-            // Kabhi kabhi array aata hai, kabhi object
             let fileCode = "";
+            // Response format handle karna
             if (uploadRes.data.filecode) fileCode = uploadRes.data.filecode;
             else if (Array.isArray(uploadRes.data) && uploadRes.data[0]) fileCode = uploadRes.data[0].file_code;
             else if (uploadRes.data.result && uploadRes.data.result[0]) fileCode = uploadRes.data.result[0].filecode;
 
             if (fileCode) {
+                console.log("Success! Code:", fileCode);
                 res.json({ success: true, link: `https://devuploads.com/${fileCode}` });
             } else {
-                console.error("Link Missing in Response:", uploadRes.data);
-                res.json({ success: false, message: "Upload success but no link found." });
+                console.error("No Link:", uploadRes.data);
+                res.json({ success: false, message: "Upload accepted but link missing." });
             }
         } else {
-            res.json({ success: false, message: "Upload Failed via API" });
+            res.json({ success: false, message: "Upload Failed" });
         }
 
     } catch (err) {
@@ -113,12 +118,11 @@ app.post('/upload', upload.single('file'), async (req, res) => {
         
         let errorMsg = err.message;
         if (err.response) {
-            console.error("Server Error HTML:", err.response.data); // Asli error yahan dikhega
-            errorMsg = `Server Error ${err.response.status}`;
+            console.error("Server Error HTML:", err.response.data);
+            errorMsg = `Server Error ${err.response.status} - Check Logs`;
         }
-        console.error("Upload Failed:", errorMsg);
         res.status(500).json({ success: false, message: errorMsg });
     }
 });
 
-app.listen(port, () => console.log(`Fixed Bot running on ${port}`));
+app.listen(port, () => console.log(`Force-Auth Bot running on ${port}`));
