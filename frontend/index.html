@@ -669,9 +669,8 @@
 
 <script>
   // CONFIG — change this to your backend URL
-  const API_BASE = window.location.origin.includes('localhost')
-    ? 'http://localhost:8000'
-    : window.location.origin;
+  // Always use relative URL
+  const API_BASE = '';
 
   const fileInput = document.getElementById('fileInput');
   const dropZone = document.getElementById('dropZone');
