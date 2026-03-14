@@ -145,16 +145,13 @@ async def upload_stream(file: UploadFile = File(...)):
 
             client = await get_client()
 
-            # Step 2 — Upload with real progress callback
-            last_pct = [5]
+            # Upload with real progress tracking
+            caption = f"📁 {filename}\n💾 {format_size(file_size)}"
+            mb_total = file_size / (1024 * 1024)
+            progress_state = {"current": 0}
 
             def progress_callback(current, total):
-                pct = int((current / total) * 90) + 5  # 5% to 95%
-                if pct > last_pct[0]:
-                    last_pct[0] = pct
-
-            # Run upload in executor to allow progress updates
-            caption = f"📁 {filename}\n💾 {format_size(file_size)}"
+                progress_state["current"] = current
 
             upload_task = asyncio.create_task(
                 client.send_file(
@@ -166,14 +163,14 @@ async def upload_stream(file: UploadFile = File(...)):
                 )
             )
 
-            # Stream progress while uploading
+            # Stream real progress while uploading
             while not upload_task.done():
-                pct = last_pct[0]
-                mb_done = (file_size * (pct - 5) / 90) / (1024 * 1024)
-                mb_total = file_size / (1024 * 1024)
+                current = progress_state["current"]
+                pct = max(5, min(95, int((current / file_size) * 90) + 5)) if file_size > 0 else 5
+                mb_done = current / (1024 * 1024)
                 status = f"Uploading... {mb_done:.1f} MB / {mb_total:.1f} MB"
                 yield f"data: {json.dumps({'type': 'progress', 'percent': pct, 'status': status})}\n\n"
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
 
             message = await upload_task
 
