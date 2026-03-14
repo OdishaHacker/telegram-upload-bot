@@ -12,9 +12,14 @@ import httpx
 import logging
 import time
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+# Setup logging — use print so Coolify shows it inline with uvicorn
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger("telestore")
+logger.setLevel(logging.INFO)
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
