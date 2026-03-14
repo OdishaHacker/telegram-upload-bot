@@ -189,12 +189,14 @@ async def download_file(short_id: str):
         if not message or not message.document:
             raise HTTPException(status_code=404, detail="File not found in Telegram")
 
-        # Get direct Telegram CDN URL — no server download needed!
-        tg_file = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-        
-        # Stream directly from Telegram using iter_download — fastest method
+        document = message.document
+
+        # Stream directly chunk by chunk — no temp file, instant start!
         async def stream_from_telegram():
-            async for chunk in client.iter_download(tg_file.document, request_size=512*1024):
+            async for chunk in client.iter_download(
+                document,
+                request_size=1024 * 1024,  # 1MB chunks
+            ):
                 yield chunk
 
     except Exception as e:
@@ -205,9 +207,9 @@ async def download_file(short_id: str):
         "Content-Type": entry["content_type"],
         "Content-Length": str(entry["size"]),
         "Accept-Ranges": "bytes",
+        "Cache-Control": "no-cache",
     }
     return StreamingResponse(stream_from_telegram(), headers=headers, media_type=entry["content_type"])
-
 
 @app.get("/files")
 async def list_files():
