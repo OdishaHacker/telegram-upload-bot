@@ -577,7 +577,10 @@
       <div class="logo-icon">📡</div>
       <div class="logo-text">Tele<span>Store</span></div>
     </div>
-    <span class="nav-link" onclick="loadFiles()">View Files ↗</span>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <span class="nav-link" onclick="loadFiles()">View Files ↗</span>
+      <span class="nav-link" id="syncBtn" onclick="syncFiles()" style="color:#f87171;">Sync ↺</span>
+    </div>
   </header>
 
   <div class="hero">
@@ -849,6 +852,23 @@
         btn.classList.remove('copied');
       }, 2000);
     });
+  }
+
+  async function syncFiles() {
+    const btn = document.getElementById('syncBtn');
+    btn.textContent = 'Syncing...';
+    btn.style.color = '#f5a623';
+    try {
+      const resp = await fetch(`${API_BASE}/sync`);
+      const data = await resp.json();
+      btn.textContent = `Sync ↺`;
+      btn.style.color = '#22d3a5';
+      setTimeout(() => { btn.style.color = '#f87171'; btn.textContent = 'Sync ↺'; }, 2000);
+      loadFiles();
+    } catch (e) {
+      btn.textContent = 'Sync ↺';
+      btn.style.color = '#f87171';
+    }
   }
 
   async function loadFiles() {
