@@ -1,0 +1,14 @@
+version: "3.8"
+
+services:
+  telestore:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - CHANNEL_ID=${CHANNEL_ID}
+      - BASE_URL=${BASE_URL:-http://localhost:8000}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
