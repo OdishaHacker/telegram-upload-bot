@@ -12,9 +12,20 @@ import httpx
 import time
 
 import sys
+LOG_FILE = "/app/telestore.log"
+
 def log(msg):
-    sys.stderr.write(msg + "\n")
+    import datetime
+    line = f"{datetime.datetime.now().strftime('%H:%M:%S')} | {msg}\n"
+    sys.stderr.write(line)
     sys.stderr.flush()
+    sys.stdout.write(line)
+    sys.stdout.flush()
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(line)
+    except:
+        pass
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
