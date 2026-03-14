@@ -17,6 +17,8 @@ import httpx
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
+def log(msg):
+    print(msg, flush=True)
 
 # =========================================================
 # LOGGING SYSTEM (COOLIFY FRIENDLY)
