@@ -762,57 +762,75 @@
 
     progressWrap.classList.add('show');
 
-    // Simulate progress (XHR for real progress)
-    return new Promise((resolve) => {
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append('file', selectedFile);
+    const formData = new FormData();
+    formData.append('file', selectedFile);
 
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 85);
-          progressFill.style.width = pct + '%';
-          progressPct.textContent = pct + '%';
-          if (pct > 50) progressStatus.textContent = 'Sending to Telegram...';
-        }
+    try {
+      // Use SSE endpoint for real Telegram upload progress
+      const response = await fetch(`${API_BASE}/upload-stream`, {
+        method: 'POST',
+        body: formData,
       });
 
-      xhr.addEventListener('load', () => {
-        progressFill.style.width = '100%';
-        progressPct.textContent = '100%';
-        progressStatus.textContent = 'Complete!';
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
 
-        setTimeout(() => {
-          progressWrap.classList.remove('show');
-          progressFill.style.width = '0%';
-          uploadBtn.disabled = false;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
           try {
-            const data = JSON.parse(xhr.responseText);
-            if (xhr.status === 200 && data.success) {
-              showResult(data);
-              clearFile();
-              loadFiles();
-            } else {
-              showError(data.detail || 'Upload failed. Check your configuration.');
+            const event = JSON.parse(line.slice(6));
+
+            if (event.type === 'progress') {
+              progressFill.style.width = event.percent + '%';
+              progressPct.textContent = event.percent + '%';
+              progressStatus.textContent = event.status;
             }
-          } catch {
-            showError('Server error. Is the backend running?');
+
+            else if (event.type === 'done') {
+              progressFill.style.width = '100%';
+              progressPct.textContent = '100%';
+              progressStatus.textContent = '✓ Upload complete!';
+
+              setTimeout(() => {
+                progressWrap.classList.remove('show');
+                progressFill.style.width = '0%';
+                uploadBtn.disabled = false;
+                showResult(event);
+                clearFile();
+                loadFiles();
+              }, 800);
+            }
+
+            else if (event.type === 'error') {
+              progressWrap.classList.remove('show');
+              uploadBtn.disabled = false;
+              showError('Upload error: ' + event.message);
+            }
+
+          } catch (e) {
+            // skip malformed event
           }
-          resolve();
-        }, 600);
-      });
+        }
+      }
 
-      xhr.addEventListener('error', () => {
-        progressWrap.classList.remove('show');
-        uploadBtn.disabled = false;
-        showError('Connection failed. Is the backend running?');
-        resolve();
-      });
-
-      xhr.open('POST', `${API_BASE}/upload`);
-      xhr.send(formData);
-    });
+    } catch (err) {
+      progressWrap.classList.remove('show');
+      uploadBtn.disabled = false;
+      showError('Connection failed. Is the backend running?');
+    }
   }
 
   function showResult(data) {
