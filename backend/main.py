@@ -327,6 +327,36 @@ async def download_file(short_id: str):
     )
 
 
+@app.get("/sync")
+async def sync_files():
+    """Check all files against Telegram and remove deleted ones"""
+    try:
+        db = load_db()
+        if not db:
+            return {"removed": 0, "remaining": 0}
+
+        client = await get_client()
+        to_delete = []
+
+        for short_id, entry in db.items():
+            try:
+                message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+                if not message or not message.document:
+                    to_delete.append(short_id)
+            except Exception:
+                to_delete.append(short_id)
+
+        for sid in to_delete:
+            del db[sid]
+
+        if to_delete:
+            save_db(db)
+
+        return {"removed": len(to_delete), "remaining": len(db)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/files")
 async def list_files():
     db = load_db()
