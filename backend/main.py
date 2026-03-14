@@ -10,27 +10,22 @@ from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, Red
 from fastapi.staticfiles import StaticFiles
 import httpx
 import time
+
 import sys
-
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
-
 LOG_FILE = "/app/telestore.log"
 
 def log(msg):
     import datetime
-    line = f"{datetime.datetime.now().strftime('%H:%M:%S')} | {msg}"
-
-    # Coolify logs
-    print(line, flush=True)
-
-    # File log
+    line = f"{datetime.datetime.now().strftime('%H:%M:%S')} | {msg}\n"
+    sys.stderr.write(line)
+    sys.stderr.flush()
+    sys.stdout.write(line)
+    sys.stdout.flush()
     try:
         with open(LOG_FILE, "a") as f:
-            f.write(line + "\n")
+            f.write(line)
     except:
         pass
-        
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -66,6 +61,31 @@ async def get_client():
         await _client.start(bot_token=BOT_TOKEN)
     return _client
 
+async def cleanup_deleted_files():
+    """Background task — checks every 30 min if files still exist in Telegram"""
+    while True:
+        await asyncio.sleep(30 * 60)  # 30 minutes
+        try:
+            db = load_db()
+            if not db:
+                continue
+            client = await get_client()
+            to_delete = []
+            for short_id, entry in db.items():
+                try:
+                    message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+                    if not message or not message.document:
+                        to_delete.append(short_id)
+                except Exception:
+                    pass
+            if to_delete:
+                for sid in to_delete:
+                    del db[sid]
+                save_db(db)
+        except Exception:
+            pass
+
+
 def load_db():
     if not Path(DB_FILE).exists():
         return {}
@@ -83,6 +103,11 @@ def format_size(size_bytes):
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
+
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(cleanup_deleted_files())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -179,30 +204,18 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
             os.unlink(tmp_path)
 
 
-@@app.post("/upload")
+@app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     if not BOT_TOKEN or not API_ID or not API_HASH or not CHANNEL_ID:
         raise HTTPException(status_code=500, detail="Missing config")
 
     file_content = await file.read()
+    if len(file_content) > 2 * 1024 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
     job_id = str(uuid.uuid4())[:12]
-
-    upload_jobs[job_id] = {
-        "percent": 0,
-        "status": "Starting...",
-        "done": False,
-        "error": None
-    }
-
-    # run upload directly (so logs show)
-    await do_upload(
-        job_id,
-        file_content,
-        file.filename,
-        file.content_type or "application/octet-stream"
-    )
-
+    upload_jobs[job_id] = {"percent": 0, "status": "Starting...", "done": False, "error": None}
+    asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
     return JSONResponse({"job_id": job_id})
 
 
