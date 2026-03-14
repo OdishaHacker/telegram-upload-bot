@@ -116,13 +116,19 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
 
         short_id = str(uuid.uuid4())[:8]
         db = load_db()
+
+        # Save full document info — avoids message fetch on download
+        doc = message.document
         db[short_id] = {
             "message_id": message.id,
             "filename": filename,
             "size": file_size,
             "content_type": content_type,
             "channel_id": CHANNEL_ID,
-            "doc_id": file_id_str,
+            "doc_id": doc.id if doc else None,
+            "access_hash": doc.access_hash if doc else None,
+            "file_reference": doc.file_reference.hex() if doc else None,
+            "dc_id": doc.dc_id if doc else None,
         }
         save_db(db)
 
@@ -198,20 +204,37 @@ async def download_file(short_id: str):
         except Exception:
             pass
 
-    # All files — fast streaming directly from Telegram (no temp file!)
     try:
         client = await get_client()
-        message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-        if not message or not message.document:
-            raise HTTPException(status_code=404, detail="File not found in Telegram")
 
-        document = message.document
+        # Try fast path: use saved document info (no message fetch needed!)
+        if entry.get("doc_id") and entry.get("access_hash") and entry.get("file_reference"):
+            from telethon.tl.types import InputDocumentFileLocation
+            from telethon.tl.types import Document
+
+            document = Document(
+                id=entry["doc_id"],
+                access_hash=entry["access_hash"],
+                file_reference=bytes.fromhex(entry["file_reference"]),
+                date=0,
+                mime_type=entry["content_type"],
+                size=entry["size"],
+                thumbs=None,
+                video_thumbs=None,
+                dc_id=entry.get("dc_id", 1),
+                attributes=[],
+            )
+        else:
+            # Fallback: fetch message (older entries without doc info)
+            message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+            if not message or not message.document:
+                raise HTTPException(status_code=404, detail="File not found in Telegram")
+            document = message.document
 
         async def stream_from_telegram():
-            # iter_download streams chunk by chunk — starts immediately!
             async for chunk in client.iter_download(
                 document,
-                request_size=1024 * 1024,  # 1MB per request
+                request_size=1024 * 1024,
             ):
                 yield chunk
 
