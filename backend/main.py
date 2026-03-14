@@ -9,17 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-import logging
 import time
 
-# Setup logging — use print so Coolify shows it inline with uvicorn
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(message)s",
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger("telestore")
-logger.setLevel(logging.INFO)
+# Simple print-based logging for Coolify visibility
+import sys
+def log(msg):
+    print(msg, flush=True)
+    sys.stdout.flush()
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
@@ -96,9 +92,9 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
 
         upload_jobs[job_id] = {"percent": 5, "status": "Connecting to Telegram...", "done": False, "error": None}
         t_upload_start = time.time()
-        logger.info(f"⬆️  UPLOAD START | file={filename} | size={mb_total:.1f}MB")
+        log(f"⬆️  UPLOAD START | file={filename} | size={mb_total:.1f}MB")
         client = await get_client()
-        logger.info(f"✅ Telegram client ready for upload")
+        log(f"✅ Telegram client ready for upload")
         caption = f"📁 {filename}\n💾 {format_size(file_size)}"
         progress_state = {"current": 0}
 
@@ -122,7 +118,7 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
             workers=4,
         )
 
-        logger.info(f"✅ UPLOAD TO TELEGRAM DONE | {mb_total:.1f}MB | time={time.time()-t_upload_start:.2f}s")
+        log(f"✅ UPLOAD TO TELEGRAM DONE | {mb_total:.1f}MB | time={time.time()-t_upload_start:.2f}s")
         upload_jobs[job_id] = {"percent": 97, "status": "Saving link...", "done": False, "error": None}
 
         # Save file_id for bot API direct download (small files)
@@ -220,12 +216,12 @@ async def download_file(short_id: str):
             pass
 
     file_size_mb = entry["size"] / (1024 * 1024)
-    logger.info(f"⬇️  DOWNLOAD START | file={entry['filename']} | size={file_size_mb:.1f}MB | id={short_id}")
+    log(f"⬇️  DOWNLOAD START | file={entry['filename']} | size={file_size_mb:.1f}MB | id={short_id}")
     t_start = time.time()
 
     try:
         client = await get_client()
-        logger.info(f"✅ Telegram client ready | {time.time()-t_start:.2f}s elapsed")
+        log(f"✅ Telegram client ready | {time.time()-t_start:.2f}s elapsed")
 
         # Try fast path: use saved document info (no message fetch needed!)
         if entry.get("doc_id") and entry.get("access_hash") and entry.get("file_reference"):
@@ -246,15 +242,15 @@ async def download_file(short_id: str):
             )
         else:
             # Fallback: fetch message (older entries without doc info)
-            logger.info(f"🔄 Slow path: fetching message from Telegram...")
+            log(f"🔄 Slow path: fetching message from Telegram...")
             t_fetch = time.time()
             message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-            logger.info(f"📨 Message fetched in {time.time()-t_fetch:.2f}s")
+            log(f"📨 Message fetched in {time.time()-t_fetch:.2f}s")
             if not message or not message.document:
                 raise HTTPException(status_code=404, detail="File not found in Telegram")
             document = message.document
 
-        logger.info(f"🚀 Streaming to user starts NOW | {time.time()-t_start:.2f}s after tap")
+        log(f"🚀 Streaming to user starts NOW | {time.time()-t_start:.2f}s after tap")
 
         chunk_count = [0]
         bytes_sent = [0]
@@ -267,15 +263,15 @@ async def download_file(short_id: str):
                 chunk_count[0] += 1
                 bytes_sent[0] += len(chunk)
                 if chunk_count[0] == 1:
-                    logger.info(f"📦 First chunk sent to user | {time.time()-t_start:.2f}s after tap")
+                    log(f"📦 First chunk sent to user | {time.time()-t_start:.2f}s after tap")
                 if chunk_count[0] % 50 == 0:
                     mb_sent = bytes_sent[0] / (1024*1024)
-                    logger.info(f"📊 Progress: {mb_sent:.1f}MB / {file_size_mb:.1f}MB sent")
+                    log(f"📊 Progress: {mb_sent:.1f}MB / {file_size_mb:.1f}MB sent")
                 yield chunk
-            logger.info(f"✅ DOWNLOAD COMPLETE | {file_size_mb:.1f}MB | total time={time.time()-t_start:.2f}s")
+            log(f"✅ DOWNLOAD COMPLETE | {file_size_mb:.1f}MB | total time={time.time()-t_start:.2f}s")
 
     except Exception as e:
-        logger.error(f"❌ DOWNLOAD ERROR | {str(e)}")
+        log(f"[ERROR] " + f"❌ DOWNLOAD ERROR | {str(e)}")
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
     headers = {
