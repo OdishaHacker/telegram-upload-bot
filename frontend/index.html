@@ -761,45 +761,47 @@
     const progressPct = document.getElementById('progressPct');
 
     progressWrap.classList.add('show');
-
-    const formData = new FormData();
-    formData.append('file', selectedFile);
+    progressFill.style.width = '2%';
+    progressStatus.textContent = 'Starting upload...';
+    progressPct.textContent = '0%';
 
     try {
-      // Use SSE endpoint for real Telegram upload progress
-      const response = await fetch(`${API_BASE}/upload-stream`, {
+      // Step 1: Send file to backend, get job_id instantly
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const uploadResp = await fetch(`${API_BASE}/upload`, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Upload failed');
+      if (!uploadResp.ok) {
+        const err = await uploadResp.json();
+        throw new Error(err.detail || 'Upload failed');
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const { job_id } = await uploadResp.json();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      // Step 2: Poll /progress/:job_id every 800ms
+      const pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_BASE}/progress/${job_id}`);
+          const job = await res.json();
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop(); // keep incomplete line
+          // Update progress bar
+          progressFill.style.width = job.percent + '%';
+          progressPct.textContent = job.percent + '%';
+          progressStatus.textContent = job.status;
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
+          if (job.done) {
+            clearInterval(pollInterval);
 
-            if (event.type === 'progress') {
-              progressFill.style.width = event.percent + '%';
-              progressPct.textContent = event.percent + '%';
-              progressStatus.textContent = event.status;
-            }
-
-            else if (event.type === 'done') {
+            if (job.error) {
+              progressWrap.classList.remove('show');
+              progressFill.style.width = '0%';
+              uploadBtn.disabled = false;
+              showError('Upload error: ' + job.error);
+            } else {
               progressFill.style.width = '100%';
               progressPct.textContent = '100%';
               progressStatus.textContent = '✓ Upload complete!';
@@ -808,28 +810,21 @@
                 progressWrap.classList.remove('show');
                 progressFill.style.width = '0%';
                 uploadBtn.disabled = false;
-                showResult(event);
+                showResult(job.result);
                 clearFile();
                 loadFiles();
               }, 800);
             }
-
-            else if (event.type === 'error') {
-              progressWrap.classList.remove('show');
-              uploadBtn.disabled = false;
-              showError('Upload error: ' + event.message);
-            }
-
-          } catch (e) {
-            // skip malformed event
           }
+        } catch (e) {
+          // polling error — keep trying
         }
-      }
+      }, 800);
 
     } catch (err) {
       progressWrap.classList.remove('show');
       uploadBtn.disabled = false;
-      showError('Connection failed. Is the backend running?');
+      showError(err.message || 'Connection failed. Is the backend running?');
     }
   }
 
