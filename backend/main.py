@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 from telethon import TelegramClient
@@ -35,6 +35,10 @@ if FRONTEND_DIR.exists():
 
 _client = None
 
+# In-memory upload job tracker
+# { job_id: { percent, status, done, error, result } }
+upload_jobs = {}
+
 async def get_client():
     global _client
     if _client is None or not _client.is_connected():
@@ -60,6 +64,7 @@ def format_size(size_bytes):
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
 
+
 @app.get("/", response_class=HTMLResponse)
 async def root():
     index = FRONTEND_DIR / "index.html"
@@ -67,145 +72,112 @@ async def root():
         return HTMLResponse(content=index.read_text())
     return HTMLResponse(content="<h1>TeleStore Running</h1>")
 
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    if not BOT_TOKEN or not API_ID or not API_HASH or not CHANNEL_ID:
-        raise HTTPException(status_code=500, detail="Missing config: BOT_TOKEN, API_ID, API_HASH, CHANNEL_ID")
 
-    file_content = await file.read()
+async def do_upload(job_id: str, file_content: bytes, filename: str, content_type: str):
+    """Background upload task with progress tracking"""
     file_size = len(file_content)
-
-    if file_size > 2 * 1024 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
-
-    suffix = Path(file.filename).suffix or ".bin"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(file_content)
-        tmp_path = tmp.name
+    mb_total = file_size / (1024 * 1024)
+    suffix = Path(filename).suffix or ".bin"
+    tmp_path = None
 
     try:
+        upload_jobs[job_id] = {"percent": 2, "status": "Saving file...", "done": False, "error": None}
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(file_content)
+            tmp_path = tmp.name
+
+        upload_jobs[job_id] = {"percent": 5, "status": "Connecting to Telegram...", "done": False, "error": None}
+
         client = await get_client()
-        caption = f"📁 {file.filename}\n💾 {format_size(file_size)}"
+        caption = f"📁 {filename}\n💾 {format_size(file_size)}"
+        progress_state = {"current": 0}
+
+        def progress_callback(current, total):
+            progress_state["current"] = current
+            pct = max(5, min(95, int((current / file_size) * 90) + 5)) if file_size > 0 else 5
+            mb_done = current / (1024 * 1024)
+            upload_jobs[job_id] = {
+                "percent": pct,
+                "status": f"Uploading... {mb_done:.1f} MB / {mb_total:.1f} MB",
+                "done": False,
+                "error": None
+            }
+
         message = await client.send_file(
             CHANNEL_ID,
             tmp_path,
             caption=caption,
             force_document=True,
+            progress_callback=progress_callback,
         )
+
+        upload_jobs[job_id] = {"percent": 97, "status": "Saving link...", "done": False, "error": None}
+
+        short_id = str(uuid.uuid4())[:8]
+        db = load_db()
+        db[short_id] = {
+            "message_id": message.id,
+            "filename": filename,
+            "size": file_size,
+            "content_type": content_type,
+            "channel_id": CHANNEL_ID,
+        }
+        save_db(db)
+
+        upload_jobs[job_id] = {
+            "percent": 100,
+            "status": "Upload complete!",
+            "done": True,
+            "error": None,
+            "result": {
+                "success": True,
+                "filename": filename,
+                "size": format_size(file_size),
+                "download_link": f"{BASE_URL}/download/{short_id}",
+                "short_id": short_id
+            }
+        }
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload error: {str(e)}")
+        upload_jobs[job_id] = {
+            "percent": 0,
+            "status": "Failed",
+            "done": True,
+            "error": str(e)
+        }
     finally:
-        os.unlink(tmp_path)
-
-    short_id = str(uuid.uuid4())[:8]
-    db = load_db()
-    db[short_id] = {
-        "message_id": message.id,
-        "filename": file.filename,
-        "size": file_size,
-        "content_type": file.content_type or "application/octet-stream",
-        "channel_id": CHANNEL_ID,
-    }
-    save_db(db)
-
-    return {
-        "success": True,
-        "filename": file.filename,
-        "size": format_size(file_size),
-        "download_link": f"{BASE_URL}/download/{short_id}",
-        "short_id": short_id
-    }
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
-@app.post("/upload-stream")
-async def upload_stream(file: UploadFile = File(...)):
-    """SSE-based upload with real progress"""
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
     if not BOT_TOKEN or not API_ID or not API_HASH or not CHANNEL_ID:
-        raise HTTPException(status_code=500, detail="Missing configuration")
+        raise HTTPException(status_code=500, detail="Missing config")
 
     file_content = await file.read()
     file_size = len(file_content)
-    filename = file.filename
-    content_type = file.content_type or "application/octet-stream"
 
     if file_size > 2 * 1024 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
-    async def event_generator():
-        suffix = Path(filename).suffix or ".bin"
-        tmp_path = None
-        try:
-            # Step 1 — Save to disk
-            yield f"data: {json.dumps({'type': 'progress', 'percent': 2, 'status': 'Saving file...'})}\n\n"
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(file_content)
-                tmp_path = tmp.name
+    job_id = str(uuid.uuid4())[:12]
+    upload_jobs[job_id] = {"percent": 0, "status": "Starting...", "done": False, "error": None}
 
-            yield f"data: {json.dumps({'type': 'progress', 'percent': 5, 'status': 'Connecting to Telegram...'})}\n\n"
+    # Start background upload
+    asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
 
-            client = await get_client()
+    return JSONResponse({"job_id": job_id})
 
-            # Upload with real progress tracking
-            caption = f"📁 {filename}\n💾 {format_size(file_size)}"
-            mb_total = file_size / (1024 * 1024)
-            progress_state = {"current": 0}
 
-            def progress_callback(current, total):
-                progress_state["current"] = current
-
-            upload_task = asyncio.create_task(
-                client.send_file(
-                    CHANNEL_ID,
-                    tmp_path,
-                    caption=caption,
-                    force_document=True,
-                    progress_callback=progress_callback,
-                )
-            )
-
-            # Stream real progress while uploading
-            while not upload_task.done():
-                current = progress_state["current"]
-                pct = max(5, min(95, int((current / file_size) * 90) + 5)) if file_size > 0 else 5
-                mb_done = current / (1024 * 1024)
-                status = f"Uploading... {mb_done:.1f} MB / {mb_total:.1f} MB"
-                yield f"data: {json.dumps({'type': 'progress', 'percent': pct, 'status': status})}\n\n"
-                await asyncio.sleep(0.3)
-
-            message = await upload_task
-
-            yield f"data: {json.dumps({'type': 'progress', 'percent': 97, 'status': 'Saving link...'})}\n\n"
-
-            # Save to DB
-            short_id = str(uuid.uuid4())[:8]
-            db = load_db()
-            db[short_id] = {
-                "message_id": message.id,
-                "filename": filename,
-                "size": file_size,
-                "content_type": content_type,
-                "channel_id": CHANNEL_ID,
-            }
-            save_db(db)
-
-            download_link = f"{BASE_URL}/download/{short_id}"
-
-            yield f"data: {json.dumps({'type': 'done', 'percent': 100, 'status': 'Upload complete!', 'download_link': download_link, 'filename': filename, 'size': format_size(file_size), 'short_id': short_id})}\n\n"
-
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-    )
+@app.get("/progress/{job_id}")
+async def get_progress(job_id: str):
+    """Polling endpoint — frontend calls this every second"""
+    job = upload_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return JSONResponse(job)
 
 
 @app.get("/download/{short_id}")
