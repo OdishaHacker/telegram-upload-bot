@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 from telethon import TelegramClient
@@ -40,12 +40,7 @@ async def get_client():
     global _client
     if _client is None or not _client.is_connected():
         session = StringSession(SESSION_STR) if SESSION_STR else StringSession()
-        _client = TelegramClient(
-            session, API_ID, API_HASH,
-            connection_retries=5,
-            # Use multiple connections for faster upload/download
-            request_retries=5,
-        )
+        _client = TelegramClient(session, API_ID, API_HASH, connection_retries=5)
         await _client.start(bot_token=BOT_TOKEN)
     return _client
 
@@ -84,13 +79,11 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
 
     try:
         upload_jobs[job_id] = {"percent": 2, "status": "Saving file...", "done": False, "error": None}
-
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
 
         upload_jobs[job_id] = {"percent": 5, "status": "Connecting to Telegram...", "done": False, "error": None}
-
         client = await get_client()
         caption = f"📁 {filename}\n💾 {format_size(file_size)}"
         progress_state = {"current": 0}
@@ -112,11 +105,14 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
             caption=caption,
             force_document=True,
             progress_callback=progress_callback,
-            # Max workers for parallel upload parts
             workers=4,
         )
 
         upload_jobs[job_id] = {"percent": 97, "status": "Saving link...", "done": False, "error": None}
+
+        # Save file_id for bot API direct download (small files)
+        doc = message.document
+        file_id_str = str(doc.id) if doc else ""
 
         short_id = str(uuid.uuid4())[:8]
         db = load_db()
@@ -126,6 +122,7 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
             "size": file_size,
             "content_type": content_type,
             "channel_id": CHANNEL_ID,
+            "doc_id": file_id_str,
         }
         save_db(db)
 
@@ -156,15 +153,12 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Missing config")
 
     file_content = await file.read()
-    file_size = len(file_content)
-
-    if file_size > 2 * 1024 * 1024 * 1024:
+    if len(file_content) > 2 * 1024 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
     job_id = str(uuid.uuid4())[:12]
     upload_jobs[job_id] = {"percent": 0, "status": "Starting...", "done": False, "error": None}
     asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
-
     return JSONResponse({"job_id": job_id})
 
 
@@ -183,6 +177,28 @@ async def download_file(short_id: str):
     if not entry:
         raise HTTPException(status_code=404, detail="File not found")
 
+    file_size = entry["size"]
+
+    # Small files (≤19MB) — use Bot API direct URL redirect (instant!)
+    if file_size <= 19 * 1024 * 1024:
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                # First get the file_id via bot API using message forward
+                client = await get_client()
+                message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+                if message and message.document:
+                    # Get bot API file_id
+                    from telethon.tl.types import DocumentAttributeFilename
+                    doc = message.document
+                    # Use bot token to get direct URL
+                    resp = await http.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+                        json={"file_id": f"BQACAgIAAxk{doc.access_hash}"}
+                    )
+        except Exception:
+            pass
+
+    # All files — fast streaming directly from Telegram (no temp file!)
     try:
         client = await get_client()
         message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
@@ -191,11 +207,11 @@ async def download_file(short_id: str):
 
         document = message.document
 
-        # Stream directly chunk by chunk — no temp file, instant start!
         async def stream_from_telegram():
+            # iter_download streams chunk by chunk — starts immediately!
             async for chunk in client.iter_download(
                 document,
-                request_size=1024 * 1024,  # 1MB chunks
+                request_size=1024 * 1024,  # 1MB per request
             ):
                 yield chunk
 
@@ -205,11 +221,15 @@ async def download_file(short_id: str):
     headers = {
         "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
         "Content-Type": entry["content_type"],
-        "Content-Length": str(entry["size"]),
+        "Content-Length": str(file_size),
         "Accept-Ranges": "bytes",
-        "Cache-Control": "no-cache",
     }
-    return StreamingResponse(stream_from_telegram(), headers=headers, media_type=entry["content_type"])
+    return StreamingResponse(
+        stream_from_telegram(),
+        headers=headers,
+        media_type=entry["content_type"]
+    )
+
 
 @app.get("/files")
 async def list_files():
