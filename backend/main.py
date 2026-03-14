@@ -179,18 +179,30 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
             os.unlink(tmp_path)
 
 
-@app.post("/upload")
+@@app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     if not BOT_TOKEN or not API_ID or not API_HASH or not CHANNEL_ID:
         raise HTTPException(status_code=500, detail="Missing config")
 
     file_content = await file.read()
-    if len(file_content) > 2 * 1024 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
     job_id = str(uuid.uuid4())[:12]
-    upload_jobs[job_id] = {"percent": 0, "status": "Starting...", "done": False, "error": None}
-    asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
+
+    upload_jobs[job_id] = {
+        "percent": 0,
+        "status": "Starting...",
+        "done": False,
+        "error": None
+    }
+
+    # run upload directly (so logs show)
+    await do_upload(
+        job_id,
+        file_content,
+        file.filename,
+        file.content_type or "application/octet-stream"
+    )
+
     return JSONResponse({"job_id": job_id})
 
 
