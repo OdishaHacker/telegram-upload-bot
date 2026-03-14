@@ -11,11 +11,10 @@ from fastapi.staticfiles import StaticFiles
 import httpx
 import time
 
-# Simple print-based logging for Coolify visibility
 import sys
 def log(msg):
-    print(msg, flush=True)
-    sys.stdout.flush()
+    sys.stderr.write(msg + "\n")
+    sys.stderr.flush()
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
