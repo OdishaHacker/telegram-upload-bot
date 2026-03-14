@@ -27,23 +27,25 @@ API_HASH    = os.getenv("API_HASH", "")
 CHANNEL_ID  = int(os.getenv("CHANNEL_ID", "0"))
 BASE_URL    = os.getenv("BASE_URL", "http://localhost:9500")
 SESSION_STR = os.getenv("SESSION_STRING", "")
-DB_FILE     = "files_db.json"
+DB_FILE     = "/app/files_db.json"
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 _client = None
-
-# In-memory upload job tracker
-# { job_id: { percent, status, done, error, result } }
 upload_jobs = {}
 
 async def get_client():
     global _client
     if _client is None or not _client.is_connected():
         session = StringSession(SESSION_STR) if SESSION_STR else StringSession()
-        _client = TelegramClient(session, API_ID, API_HASH)
+        _client = TelegramClient(
+            session, API_ID, API_HASH,
+            connection_retries=5,
+            # Use multiple connections for faster upload/download
+            request_retries=5,
+        )
         await _client.start(bot_token=BOT_TOKEN)
     return _client
 
@@ -54,6 +56,7 @@ def load_db():
         return json.load(f)
 
 def save_db(data):
+    os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -74,7 +77,6 @@ async def root():
 
 
 async def do_upload(job_id: str, file_content: bytes, filename: str, content_type: str):
-    """Background upload task with progress tracking"""
     file_size = len(file_content)
     mb_total = file_size / (1024 * 1024)
     suffix = Path(filename).suffix or ".bin"
@@ -110,6 +112,8 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
             caption=caption,
             force_document=True,
             progress_callback=progress_callback,
+            # Max workers for parallel upload parts
+            workers=4,
         )
 
         upload_jobs[job_id] = {"percent": 97, "status": "Saving link...", "done": False, "error": None}
@@ -140,12 +144,7 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
         }
 
     except Exception as e:
-        upload_jobs[job_id] = {
-            "percent": 0,
-            "status": "Failed",
-            "done": True,
-            "error": str(e)
-        }
+        upload_jobs[job_id] = {"percent": 0, "status": "Failed", "done": True, "error": str(e)}
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -164,8 +163,6 @@ async def upload_file(file: UploadFile = File(...)):
 
     job_id = str(uuid.uuid4())[:12]
     upload_jobs[job_id] = {"percent": 0, "status": "Starting...", "done": False, "error": None}
-
-    # Start background upload
     asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
 
     return JSONResponse({"job_id": job_id})
@@ -173,7 +170,6 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.get("/progress/{job_id}")
 async def get_progress(job_id: str):
-    """Polling endpoint — frontend calls this every second"""
     job = upload_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -193,29 +189,24 @@ async def download_file(short_id: str):
         if not message or not message.document:
             raise HTTPException(status_code=404, detail="File not found in Telegram")
 
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp_path = tmp.name
-
-        await client.download_media(message, tmp_path)
+        # Get direct Telegram CDN URL — no server download needed!
+        tg_file = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+        
+        # Stream directly from Telegram using iter_download — fastest method
+        async def stream_from_telegram():
+            async for chunk in client.iter_download(tg_file.document, request_size=512*1024):
+                yield chunk
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
-    async def stream_and_cleanup():
-        try:
-            with open(tmp_path, "rb") as f:
-                while chunk := f.read(1024 * 1024):
-                    yield chunk
-        finally:
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
     headers = {
         "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
         "Content-Type": entry["content_type"],
-        "Content-Length": str(entry["size"])
+        "Content-Length": str(entry["size"]),
+        "Accept-Ranges": "bytes",
     }
-    return StreamingResponse(stream_and_cleanup(), headers=headers, media_type=entry["content_type"])
+    return StreamingResponse(stream_from_telegram(), headers=headers, media_type=entry["content_type"])
 
 
 @app.get("/files")
