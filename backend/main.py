@@ -383,17 +383,19 @@ async def download_file(short_id: str):
             raise HTTPException(status_code=404, detail="File deleted from Telegram")
 
         document = message.document
-        log(f"🚀 Download starts | {time.time()-t_start:.2f}s after tap")
+        log(f"🚀 Streaming starts | {time.time()-t_start:.2f}s after tap")
 
-        # Download to temp file first — then send with proper Content-Length
-        import tempfile
-        tmp = tempfile.NamedTemporaryFile(delete=False)
-        tmp_path = tmp.name
-        tmp.close()
-
-        await client.download_media(message, tmp_path)
-        actual_size = os.path.getsize(tmp_path)
-        log(f"✅ Downloaded to tmp | {actual_size/(1024*1024):.1f}MB | {time.time()-t_start:.1f}s")
+        # Stream directly — no temp file, instant start!
+        async def stream_from_telegram():
+            bytes_sent = 0
+            async for chunk in client.iter_download(
+                document,
+                request_size=2 * 1024 * 1024,  # 2MB chunks — max speed
+            ):
+                data = bytes(chunk)
+                bytes_sent += len(data)
+                yield data
+            log(f"✅ DOWNLOAD DONE | {bytes_sent/(1024*1024):.1f}MB | {time.time()-t_start:.1f}s")
 
     except HTTPException:
         raise
@@ -403,27 +405,15 @@ async def download_file(short_id: str):
 
     filename_safe = entry["filename"].replace('"', '\"')
 
-    async def stream_file():
-        try:
-            with open(tmp_path, "rb") as f:
-                while chunk := f.read(1024 * 1024):
-                    yield chunk
-        finally:
-            try:
-                os.unlink(tmp_path)
-                log(f"🗑️ Tmp deleted | {entry['filename']}")
-            except:
-                pass
-
-    from fastapi.responses import Response
     return StreamingResponse(
-        stream_file(),
+        stream_from_telegram(),
         headers={
             "Content-Disposition": f'attachment; filename="{filename_safe}"',
             "Content-Type": entry["content_type"],
-            "Content-Length": str(actual_size),
+            "Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
             "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
         },
         media_type=entry["content_type"]
     )
