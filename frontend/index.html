@@ -624,17 +624,37 @@
     </div>
 
     <div class="progress-wrap" id="progressWrap">
-      <div class="progress-label">
-        <span id="progressStatus">Uploading to Telegram...</span>
-        <span id="progressPct">0%</span>
+
+      <!-- Server Progress Bar -->
+      <div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;">📱 PHONE → SERVER</span>
+          <span id="serverPct" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="serverFill" style="background:linear-gradient(90deg,#5b6ef5,#8b5cf6);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;">
+          <span id="serverStatus" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
+          <span id="serverSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;"></span>
+        </div>
       </div>
-      <div class="progress-bar-bg">
-        <div class="progress-bar-fill" id="progressFill"></div>
+
+      <!-- Telegram Progress Bar -->
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;">📡 SERVER → TELEGRAM</span>
+          <span id="telegramPct" style="font-family:'DM Mono',monospace;font-size:11px;color:#22d3a5;">0%</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="telegramFill" style="background:linear-gradient(90deg,#22d3a5,#0ea5e9);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:4px;">
+          <span id="telegramStatus" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
+          <span id="telegramSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#22d3a5;"></span>
+        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;margin-top:6px;">
-        <span id="progressSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;"></span>
-        <span id="progressEta" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
-      </div>
+
     </div>
 
     <div class="error-card" id="errorCard"></div>
@@ -771,11 +791,14 @@
     const progressEta = document.getElementById('progressEta');
 
     progressWrap.classList.add('show');
-    progressFill.style.width = '1%';
-    progressStatus.textContent = 'Starting...';
-    progressPct.textContent = '0%';
-    document.getElementById('progressSpeed').textContent = '';
-    document.getElementById('progressEta').textContent = '';
+    document.getElementById('serverFill').style.width = '0%';
+    document.getElementById('serverPct').textContent = '0%';
+    document.getElementById('serverStatus').textContent = 'Waiting...';
+    document.getElementById('serverSpeed').textContent = '';
+    document.getElementById('telegramFill').style.width = '0%';
+    document.getElementById('telegramPct').textContent = '0%';
+    document.getElementById('telegramStatus').textContent = 'Waiting...';
+    document.getElementById('telegramSpeed').textContent = '';
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -799,19 +822,19 @@
           const res = await fetch(`${API_BASE}/progress/${job_id}`);
           const job = await res.json();
 
-          // Force update progress bar
-          const pct = job.percent || 0;
-          progressFill.style.width = pct + '%';
-          progressFill.style.minWidth = pct > 0 ? '8px' : '0';
-          progressPct.textContent = pct + '%';
+          // Update Server bar
+          const sPct = job.server_pct || 0;
+          document.getElementById('serverFill').style.width = sPct + '%';
+          document.getElementById('serverPct').textContent = sPct + '%';
+          document.getElementById('serverStatus').textContent = job.server_status || '';
+          document.getElementById('serverSpeed').textContent = job.server_speed || '';
 
-          // Parse status parts: "1.2 MB / 9.9 MB · ⚡ 0.9 MB/s · ~5s"
-          if (job.status) {
-            const parts = job.status.split('·').map(s => s.trim()).filter(Boolean);
-            progressStatus.textContent = parts[0] || job.status;
-            progressSpeed.textContent = parts[1] || '';
-            progressEta.textContent = parts[2] || '';
-          }
+          // Update Telegram bar
+          const tPct = job.telegram_pct || 0;
+          document.getElementById('telegramFill').style.width = tPct + '%';
+          document.getElementById('telegramPct').textContent = tPct + '%';
+          document.getElementById('telegramStatus').textContent = job.telegram_status || '';
+          document.getElementById('telegramSpeed').textContent = job.telegram_speed || '';
 
           if (job.done) {
             clearInterval(pollInterval);
@@ -830,7 +853,8 @@
 
               setTimeout(() => {
                 progressWrap.classList.remove('show');
-                progressFill.style.width = '0%';
+                document.getElementById('serverFill').style.width = '0%';
+                document.getElementById('telegramFill').style.width = '0%';
                 uploadBtn.disabled = false;
                 showResult(job.result);
                 clearFile();
