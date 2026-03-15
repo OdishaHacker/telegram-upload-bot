@@ -579,7 +579,7 @@
     </div>
     <div style="display:flex;gap:12px;align-items:center;">
       <span class="nav-link" onclick="loadFiles()">View Files ↗</span>
-      <span class="nav-link" id="syncBtn" onclick="syncFiles()" style="color:#f87171;">Sync 🔄</span>
+      <span class="nav-link" id="syncBtn" onclick="syncFiles()" style="color:#f87171;">Sync ↺</span>
     </div>
   </header>
 
@@ -685,7 +685,7 @@
     if (!filename) return '📄';
     const ext = filename.split('.').pop().toLowerCase();
     const map = {
-      pdf: '📕', doc: '📝', docx: '📝', txt: '🤖', md: '📋',
+      pdf: '📕', doc: '📝', docx: '📝', txt: '📄', md: '📋',
       jpg: '🖼️', jpeg: '🖼️', png: '🖼️', gif: '🎞️', webp: '🖼️', svg: '🎨',
       mp4: '🎬', mov: '🎬', avi: '🎬', mkv: '🎬', webm: '🎬',
       mp3: '🎵', wav: '🎵', ogg: '🎵', flac: '🎵',
@@ -796,6 +796,10 @@
           progressPct.textContent = job.percent + '%';
           progressStatus.textContent = job.status;
 
+          // Update speed and ETA
+          if (job.speed) document.getElementById('progressSpeed').textContent = '⚡ ' + job.speed;
+          if (job.eta) document.getElementById('progressEta').textContent = job.eta;
+
           if (job.done) {
             clearInterval(pollInterval);
 
@@ -812,6 +816,8 @@
               setTimeout(() => {
                 progressWrap.classList.remove('show');
                 progressFill.style.width = '0%';
+                document.getElementById('progressSpeed').textContent = '';
+                document.getElementById('progressEta').textContent = '';
                 uploadBtn.disabled = false;
                 showResult(job.result);
                 clearFile();
@@ -861,12 +867,12 @@
     try {
       const resp = await fetch(`${API_BASE}/sync`);
       const data = await resp.json();
-      btn.textContent = `Sync 🔄`;
+      btn.textContent = `Sync ↺`;
       btn.style.color = '#22d3a5';
-      setTimeout(() => { btn.style.color = '#f87171'; btn.textContent = 'Sync 🔄'; }, 2000);
+      setTimeout(() => { btn.style.color = '#f87171'; btn.textContent = 'Sync ↺'; }, 2000);
       loadFiles();
     } catch (e) {
-      btn.textContent = 'Sync 🔄';
+      btn.textContent = 'Sync ↺';
       btn.style.color = '#f87171';
     }
   }
