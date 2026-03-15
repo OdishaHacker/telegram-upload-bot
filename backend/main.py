@@ -136,13 +136,52 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
         caption = f"📁 {filename}\n💾 {format_size(file_size)}"
         progress_state = {"current": 0}
 
+        progress_state["start_time"] = time.time()
+        progress_state["last_time"] = time.time()
+        progress_state["last_bytes"] = 0
+
         def progress_callback(current, total):
             progress_state["current"] = current
             pct = max(5, min(95, int((current / file_size) * 90) + 5)) if file_size > 0 else 5
             mb_done = current / (1024 * 1024)
+
+            # Calculate speed
+            now = time.time()
+            elapsed = now - progress_state["last_time"]
+            if elapsed > 0.5:
+                bytes_diff = current - progress_state["last_bytes"]
+                speed_mbps = (bytes_diff / elapsed) / (1024 * 1024)
+                progress_state["last_time"] = now
+                progress_state["last_bytes"] = current
+                progress_state["speed"] = speed_mbps
+            
+            speed = progress_state.get("speed", 0)
+            speed_str = f"{speed:.1f} MB/s" if speed > 0 else ""
+            
+            # ETA calculation
+            if speed > 0:
+                remaining_mb = (file_size - current) / (1024 * 1024)
+                eta_sec = remaining_mb / speed
+                if eta_sec < 60:
+                    eta_str = f"~{int(eta_sec)}s left"
+                else:
+                    eta_str = f"~{int(eta_sec/60)}m left"
+            else:
+                eta_str = ""
+
+            status = f"Uploading... {mb_done:.1f} MB / {mb_total:.1f} MB"
+            if speed_str:
+                status += f" · {speed_str}"
+            if eta_str:
+                status += f" · {eta_str}"
+
+            log(f"⬆️  {pct}% | {mb_done:.1f}/{mb_total:.1f} MB | {speed_str} | {eta_str}")
+
             upload_jobs[job_id] = {
                 "percent": pct,
-                "status": f"Uploading... {mb_done:.1f} MB / {mb_total:.1f} MB",
+                "status": status,
+                "speed": speed_str,
+                "eta": eta_str,
                 "done": False,
                 "error": None
             }
