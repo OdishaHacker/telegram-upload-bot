@@ -625,35 +625,30 @@
 
     <div class="progress-wrap" id="progressWrap">
 
-      <!-- Server Progress Bar -->
-      <div style="margin-bottom:14px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;">📱 PHONE → SERVER</span>
-          <span id="serverPct" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;">0%</span>
-        </div>
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" id="serverFill" style="background:linear-gradient(90deg,#5b6ef5,#8b5cf6);"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:4px;">
-          <span id="serverStatus" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
-          <span id="serverSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;"></span>
-        </div>
+      <!-- Single Progress Bar -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span id="progressPhase" style="font-family:'DM Mono',monospace;font-size:12px;color:#5b6ef5;">📱 Phone → Server</span>
+        <span id="progressPct" style="font-family:'DM Mono',monospace;font-size:12px;color:#e8e8f0;">0%</span>
       </div>
 
-      <!-- Telegram Progress Bar -->
-      <div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;">📡 SERVER → TELEGRAM</span>
-          <span id="telegramPct" style="font-family:'DM Mono',monospace;font-size:11px;color:#22d3a5;">0%</span>
-        </div>
-        <div class="progress-bar-bg">
-          <div class="progress-bar-fill" id="telegramFill" style="background:linear-gradient(90deg,#22d3a5,#0ea5e9);"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;margin-top:4px;">
-          <span id="telegramStatus" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
-          <span id="telegramSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#22d3a5;"></span>
-        </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
       </div>
+
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        <span id="progressStatus" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
+        <span id="progressSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;"></span>
+      </div>
+
+      <!-- Hidden elements for backward compat -->
+      <span id="serverFill" style="display:none"></span>
+      <span id="serverPct" style="display:none"></span>
+      <span id="serverStatus" style="display:none"></span>
+      <span id="serverSpeed" style="display:none"></span>
+      <span id="telegramFill" style="display:none"></span>
+      <span id="telegramPct" style="display:none"></span>
+      <span id="telegramStatus" style="display:none"></span>
+      <span id="telegramSpeed" style="display:none"></span>
 
     </div>
 
@@ -785,15 +780,13 @@
 
     progressWrap.classList.add('show');
 
-    // Reset bars
-    document.getElementById('serverFill').style.width = '0%';
-    document.getElementById('serverPct').textContent = '0%';
-    document.getElementById('serverStatus').textContent = 'Starting...';
-    document.getElementById('serverSpeed').textContent = '';
-    document.getElementById('telegramFill').style.width = '0%';
-    document.getElementById('telegramPct').textContent = '0%';
-    document.getElementById('telegramStatus').textContent = 'Waiting...';
-    document.getElementById('telegramSpeed').textContent = '';
+    // Reset single bar
+    document.getElementById('progressFill').style.width = '0%';
+    document.getElementById('progressPct').textContent = '0%';
+    document.getElementById('progressPhase').textContent = '📱 Phone → Server';
+    document.getElementById('progressPhase').style.color = '#5b6ef5';
+    document.getElementById('progressStatus').textContent = '';
+    document.getElementById('progressSpeed').textContent = '';
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -820,7 +813,6 @@
         const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
         const mbDone = (e.loaded / (1024 * 1024)).toFixed(1);
 
-        // Calculate speed
         let speedStr = '';
         if (elapsed > 0.1) {
           const diff = e.loaded - lastLoaded;
@@ -830,20 +822,21 @@
           lastTime = now;
         }
 
-        // Update Phone → Server bar in real-time!
-        document.getElementById('serverFill').style.width = pct + '%';
-        document.getElementById('serverPct').textContent = pct + '%';
-        document.getElementById('serverStatus').textContent = mbDone + ' / ' + totalMB + ' MB';
-        document.getElementById('serverSpeed').textContent = speedStr;
+        // Update single bar — Phase 1
+        document.getElementById('progressFill').style.width = pct + '%';
+        document.getElementById('progressPct').textContent = pct + '%';
+        document.getElementById('progressStatus').textContent = mbDone + ' / ' + totalMB + ' MB';
+        document.getElementById('progressSpeed').textContent = speedStr;
       });
 
       xhr.upload.addEventListener('load', () => {
-        // Phase 1 complete
-        document.getElementById('serverFill').style.width = '100%';
-        document.getElementById('serverPct').textContent = '100%';
-        document.getElementById('serverStatus').textContent = totalMB + ' MB ✓';
-        document.getElementById('serverSpeed').textContent = '';
-        document.getElementById('telegramStatus').textContent = 'Connecting...';
+        // Phase 1 done — switch to Phase 2
+        document.getElementById('progressFill').style.width = '2%';
+        document.getElementById('progressPct').textContent = '0%';
+        document.getElementById('progressPhase').textContent = '📡 Server → Telegram';
+        document.getElementById('progressPhase').style.color = '#22d3a5';
+        document.getElementById('progressStatus').textContent = 'Connecting...';
+        document.getElementById('progressSpeed').textContent = '';
       });
 
       // Response handler — get job_id then poll for Telegram progress
@@ -862,12 +855,12 @@
               const res = await fetch(`${API_BASE}/progress/${job_id}`);
               const job = await res.json();
 
-              // Update Telegram bar only
+              // Update single bar — Phase 2
               const tPct = job.telegram_pct || 0;
-              document.getElementById('telegramFill').style.width = tPct + '%';
-              document.getElementById('telegramPct').textContent = tPct + '%';
-              document.getElementById('telegramStatus').textContent = job.telegram_status || '';
-              document.getElementById('telegramSpeed').textContent = job.telegram_speed || '';
+              document.getElementById('progressFill').style.width = tPct + '%';
+              document.getElementById('progressPct').textContent = tPct + '%';
+              document.getElementById('progressStatus').textContent = job.telegram_status || '';
+              document.getElementById('progressSpeed').textContent = job.telegram_speed || '';
 
               if (job.done) {
                 clearInterval(pollInterval);
@@ -876,13 +869,12 @@
                   uploadBtn.disabled = false;
                   showError('Upload error: ' + job.error);
                 } else {
-                  document.getElementById('telegramFill').style.width = '100%';
-                  document.getElementById('telegramPct').textContent = '100%';
-                  document.getElementById('telegramStatus').textContent = '✓ Done';
+                  document.getElementById('progressFill').style.width = '100%';
+                  document.getElementById('progressPct').textContent = '100%';
+                  document.getElementById('progressStatus').textContent = '✓ Complete!';
 
                   progressWrap.classList.remove('show');
-                  document.getElementById('serverFill').style.width = '0%';
-                  document.getElementById('telegramFill').style.width = '0%';
+                  document.getElementById('progressFill').style.width = '0%';
                   uploadBtn.disabled = false;
                   showResult(job.result);
                   clearFile();
