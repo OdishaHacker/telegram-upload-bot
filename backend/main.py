@@ -259,14 +259,18 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
     log(f"⬆️  RECEIVE START | {filename} | declared={total_size/(1024*1024):.1f}MB")
 
-    # Stream file from browser chunk by chunk — no waiting for full file
+    # Read file in chunks using spooled read
     t_recv_start = time.time()
     chunks = []
     received = 0
     last_log_time = t_recv_start
     last_log_bytes = 0
+    CHUNK_SIZE = 64 * 1024  # 64KB per read
 
-    async for chunk in file:
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
         chunks.append(chunk)
         received += len(chunk)
 
