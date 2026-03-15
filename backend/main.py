@@ -3,15 +3,18 @@ import uuid
 import json
 import tempfile
 import asyncio
+import time
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-import time
-
 import sys
+
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+
 LOG_FILE = "/tmp/telestore.log"
 
 def log(msg):
@@ -24,8 +27,6 @@ def log(msg):
             f.write(line)
     except:
         pass
-from telethon import TelegramClient
-from telethon.sessions import StringSession
 
 app = FastAPI(title="TeleStore API")
 
@@ -55,34 +56,12 @@ async def get_client():
     global _client
     if _client is None or not _client.is_connected():
         session = StringSession(SESSION_STR) if SESSION_STR else StringSession()
-        _client = TelegramClient(session, API_ID, API_HASH, connection_retries=5)
+        _client = TelegramClient(
+            session, API_ID, API_HASH,
+            connection_retries=5,
+        )
         await _client.start(bot_token=BOT_TOKEN)
     return _client
-
-async def cleanup_deleted_files():
-    """Background task — checks every 30 min if files still exist in Telegram"""
-    while True:
-        await asyncio.sleep(30 * 60)  # 30 minutes
-        try:
-            db = load_db()
-            if not db:
-                continue
-            client = await get_client()
-            to_delete = []
-            for short_id, entry in db.items():
-                try:
-                    message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-                    if not message or not message.document:
-                        to_delete.append(short_id)
-                except Exception:
-                    pass
-            if to_delete:
-                for sid in to_delete:
-                    del db[sid]
-                save_db(db)
-        except Exception:
-            pass
-
 
 def load_db():
     if not Path(DB_FILE).exists():
@@ -102,11 +81,32 @@ def format_size(size_bytes):
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
 
+async def cleanup_deleted_files():
+    while True:
+        await asyncio.sleep(30 * 60)
+        try:
+            db = load_db()
+            if not db:
+                continue
+            client = await get_client()
+            to_delete = []
+            for short_id, entry in db.items():
+                try:
+                    message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+                    if not message or not message.document:
+                        to_delete.append(short_id)
+                except:
+                    pass
+            if to_delete:
+                for sid in to_delete:
+                    del db[sid]
+                save_db(db)
+        except:
+            pass
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(cleanup_deleted_files())
-
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -123,65 +123,52 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
     tmp_path = None
 
     try:
-        upload_jobs[job_id] = {"percent": 2, "status": "Saving file...", "done": False, "error": None}
+        upload_jobs[job_id].update({"percent": 5, "status": f"Connecting to Telegram..."})
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
 
-        upload_jobs[job_id] = {"percent": 5, "status": "Connecting to Telegram...", "done": False, "error": None}
-        t_upload_start = time.time()
-        log(f"⬆️  UPLOAD START | file={filename} | size={mb_total:.1f}MB")
+        t_start = time.time()
+        log(f"⬆️  UPLOAD START | {filename} | {mb_total:.1f}MB")
         client = await get_client()
-        log(f"✅ Telegram client ready for upload")
-        caption = f"📁 {filename}\n💾 {format_size(file_size)}"
-        progress_state = {"current": 0}
 
-        progress_state["start_time"] = time.time()
-        progress_state["last_time"] = time.time()
-        progress_state["last_bytes"] = 0
+        speed_state = {"current": 0, "last_bytes": 0, "last_time": t_start, "speed": 0}
 
         def progress_callback(current, total):
-            progress_state["current"] = current
-            pct = max(5, min(95, int((current / file_size) * 90) + 5)) if file_size > 0 else 5
-            mb_done = current / (1024 * 1024)
-
-            # Calculate speed
             now = time.time()
-            elapsed = now - progress_state["last_time"]
-            if elapsed > 0.5:
-                bytes_diff = current - progress_state["last_bytes"]
-                speed_mbps = (bytes_diff / elapsed) / (1024 * 1024)
-                progress_state["last_time"] = now
-                progress_state["last_bytes"] = current
-                progress_state["speed"] = speed_mbps
-            
-            speed = progress_state.get("speed", 0)
-            speed_str = f"{speed:.1f} MB/s" if speed > 0 else ""
-            
-            # ETA calculation
+            elapsed = now - speed_state["last_time"]
+            if elapsed >= 0.5:
+                diff = current - speed_state["last_bytes"]
+                speed_state["speed"] = (diff / elapsed) / (1024 * 1024)
+                speed_state["last_bytes"] = current
+                speed_state["last_time"] = now
+            speed_state["current"] = current
+
+            pct = max(5, min(98, int((current / file_size) * 93) + 5))
+            mb_done = current / (1024 * 1024)
+            speed = speed_state["speed"]
+
             if speed > 0:
-                remaining_mb = (file_size - current) / (1024 * 1024)
-                eta_sec = remaining_mb / speed
-                if eta_sec < 60:
-                    eta_str = f"~{int(eta_sec)}s left"
-                else:
-                    eta_str = f"~{int(eta_sec/60)}m left"
+                remaining = (file_size - current) / (1024 * 1024)
+                eta = remaining / speed
+                eta_str = f"~{int(eta)}s" if eta < 60 else f"~{int(eta/60)}m {int(eta%60)}s"
+                speed_str = f"{speed:.1f} MB/s"
             else:
                 eta_str = ""
+                speed_str = ""
 
-            status = f"Uploading... {mb_done:.1f} MB / {mb_total:.1f} MB"
+            status = f"{mb_done:.1f} MB / {mb_total:.1f} MB"
             if speed_str:
-                status += f" · {speed_str}"
+                status += f"  ·  ⚡ {speed_str}"
             if eta_str:
-                status += f" · {eta_str}"
+                status += f"  ·  {eta_str}"
 
-            log(f"⬆️  {pct}% | {mb_done:.1f}/{mb_total:.1f} MB | {speed_str} | {eta_str}")
+            log(f"⬆️  {pct}% | {status}")
 
             upload_jobs[job_id] = {
                 "percent": pct,
                 "status": status,
-                "speed": speed_str,
-                "eta": eta_str,
                 "done": False,
                 "error": None
             }
@@ -189,24 +176,19 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
         message = await client.send_file(
             CHANNEL_ID,
             tmp_path,
-            caption=caption,
+            caption=f"📁 {filename}\n💾 {format_size(file_size)}",
             force_document=True,
             progress_callback=progress_callback,
             workers=4,
         )
 
-        log(f"✅ UPLOAD TO TELEGRAM DONE | {mb_total:.1f}MB | time={time.time()-t_upload_start:.2f}s")
-        upload_jobs[job_id] = {"percent": 97, "status": "Saving link...", "done": False, "error": None}
+        total_time = time.time() - t_start
+        avg_speed = mb_total / total_time if total_time > 0 else 0
+        log(f"✅ UPLOAD DONE | {mb_total:.1f}MB | {total_time:.1f}s | avg {avg_speed:.1f} MB/s")
 
-        # Save file_id for bot API direct download (small files)
         doc = message.document
-        file_id_str = str(doc.id) if doc else ""
-
         short_id = str(uuid.uuid4())[:8]
         db = load_db()
-
-        # Save full document info — avoids message fetch on download
-        doc = message.document
         db[short_id] = {
             "message_id": message.id,
             "filename": filename,
@@ -235,6 +217,7 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
         }
 
     except Exception as e:
+        log(f"❌ UPLOAD ERROR | {str(e)}")
         upload_jobs[job_id] = {"percent": 0, "status": "Failed", "done": True, "error": str(e)}
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -247,11 +230,19 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Missing config")
 
     file_content = await file.read()
-    if len(file_content) > 2 * 1024 * 1024 * 1024:
+    file_size = len(file_content)
+
+    if file_size > 2 * 1024 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
     job_id = str(uuid.uuid4())[:12]
-    upload_jobs[job_id] = {"percent": 0, "status": "Starting...", "done": False, "error": None}
+    mb = file_size / (1024 * 1024)
+    upload_jobs[job_id] = {
+        "percent": 2,
+        "status": f"File ready ({mb:.1f} MB) — connecting...",
+        "done": False,
+        "error": None
+    }
     asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
     return JSONResponse({"job_id": job_id})
 
@@ -272,123 +263,71 @@ async def download_file(short_id: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     file_size = entry["size"]
-
-    # Small files (≤19MB) — use Bot API direct URL redirect (instant!)
-    if file_size <= 19 * 1024 * 1024:
-        try:
-            async with httpx.AsyncClient(timeout=30) as http:
-                # First get the file_id via bot API using message forward
-                client = await get_client()
-                message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-                if message and message.document:
-                    # Get bot API file_id
-                    from telethon.tl.types import DocumentAttributeFilename
-                    doc = message.document
-                    # Use bot token to get direct URL
-                    resp = await http.post(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
-                        json={"file_id": f"BQACAgIAAxk{doc.access_hash}"}
-                    )
-        except Exception:
-            pass
-
-    file_size_mb = entry["size"] / (1024 * 1024)
-    log(f"⬇️  DOWNLOAD START | file={entry['filename']} | size={file_size_mb:.1f}MB | id={short_id}")
     t_start = time.time()
+    log(f"⬇️  DOWNLOAD START | {entry['filename']} | {file_size/(1024*1024):.1f}MB")
 
     try:
         client = await get_client()
-        log(f"✅ Telegram client ready | {time.time()-t_start:.2f}s elapsed")
+        message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
 
-        # Try fast path: use saved document info (no message fetch needed!)
-        if entry.get("doc_id") and entry.get("access_hash") and entry.get("file_reference"):
-            from telethon.tl.types import InputDocumentFileLocation
-            from telethon.tl.types import Document
+        if not message or not message.document:
+            db = load_db()
+            if short_id in db:
+                del db[short_id]
+                save_db(db)
+            raise HTTPException(status_code=404, detail="File deleted from Telegram")
 
-            document = Document(
-                id=entry["doc_id"],
-                access_hash=entry["access_hash"],
-                file_reference=bytes.fromhex(entry["file_reference"]),
-                date=0,
-                mime_type=entry["content_type"],
-                size=entry["size"],
-                thumbs=None,
-                video_thumbs=None,
-                dc_id=entry.get("dc_id", 1),
-                attributes=[],
-            )
-        else:
-            # Fallback: fetch message (older entries without doc info)
-            log(f"🔄 Slow path: fetching message from Telegram...")
-            t_fetch = time.time()
-            message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-            log(f"📨 Message fetched in {time.time()-t_fetch:.2f}s")
-            if not message or not message.document:
-                raise HTTPException(status_code=404, detail="File not found in Telegram")
-            document = message.document
-
-        log(f"🚀 Streaming to user starts NOW | {time.time()-t_start:.2f}s after tap")
-
-        chunk_count = [0]
-        bytes_sent = [0]
+        document = message.document
+        log(f"🚀 Streaming starts | {time.time()-t_start:.2f}s after tap")
 
         async def stream_from_telegram():
+            bytes_sent = 0
             async for chunk in client.iter_download(
                 document,
-                request_size=1024 * 1024,
+                request_size=512 * 1024,  # 512KB chunks — balanced speed
             ):
-                chunk_count[0] += 1
-                bytes_sent[0] += len(chunk)
-                if chunk_count[0] == 1:
-                    log(f"📦 First chunk sent to user | {time.time()-t_start:.2f}s after tap")
-                if chunk_count[0] % 50 == 0:
-                    mb_sent = bytes_sent[0] / (1024*1024)
-                    log(f"📊 Progress: {mb_sent:.1f}MB / {file_size_mb:.1f}MB sent")
-                yield bytes(chunk)  # convert memoryview to bytes
-            log(f"✅ DOWNLOAD COMPLETE | {file_size_mb:.1f}MB | total time={time.time()-t_start:.2f}s")
+                data = bytes(chunk)
+                bytes_sent += len(data)
+                yield data
+            log(f"✅ DOWNLOAD DONE | {bytes_sent/(1024*1024):.1f}MB | {time.time()-t_start:.1f}s")
 
+    except HTTPException:
+        raise
     except Exception as e:
-        log(f"[ERROR] " + f"❌ DOWNLOAD ERROR | {str(e)}")
+        log(f"❌ DOWNLOAD ERROR | {str(e)}")
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
-    headers = {
-        "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
-        "Content-Type": entry["content_type"],
-        "Content-Length": str(file_size),
-        "Accept-Ranges": "bytes",
-    }
     return StreamingResponse(
         stream_from_telegram(),
-        headers=headers,
+        headers={
+            "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
+            "Content-Type": entry["content_type"],
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+        },
         media_type=entry["content_type"]
     )
 
 
 @app.get("/sync")
 async def sync_files():
-    """Check all files against Telegram and remove deleted ones"""
     try:
         db = load_db()
         if not db:
             return {"removed": 0, "remaining": 0}
-
         client = await get_client()
         to_delete = []
-
         for short_id, entry in db.items():
             try:
-                message = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
-                if not message or not message.document:
+                msg = await client.get_messages(entry["channel_id"], ids=entry["message_id"])
+                if not msg or not msg.document:
                     to_delete.append(short_id)
-            except Exception:
+            except:
                 to_delete.append(short_id)
-
         for sid in to_delete:
             del db[sid]
-
         if to_delete:
             save_db(db)
-
         return {"removed": len(to_delete), "remaining": len(db)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
