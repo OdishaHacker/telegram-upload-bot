@@ -302,8 +302,9 @@
       background: linear-gradient(90deg, var(--accent), var(--accent2));
       border-radius: 100px;
       width: 0%;
-      transition: width 0.3s ease;
+      transition: width 0.15s linear;
       position: relative;
+      min-width: 0;
     }
 
     .progress-bar-fill::after {
@@ -796,25 +797,18 @@
           const res = await fetch(`${API_BASE}/progress/${job_id}`);
           const job = await res.json();
 
-          // Update progress bar
-          progressFill.style.width = job.percent + '%';
-          progressPct.textContent = job.percent + '%';
+          // Force update progress bar
+          const pct = job.percent || 0;
+          progressFill.style.width = pct + '%';
+          progressFill.style.minWidth = pct > 0 ? '8px' : '0';
+          progressPct.textContent = pct + '%';
 
-          // Parse MB info and speed/eta from status
-          // Format: "1.2 MB / 9.9 MB  ·  ⚡ 0.9 MB/s  ·  ~5s"
-          const parts = job.status.split('·').map(s => s.trim());
-          if (parts.length >= 1) {
-            progressStatus.textContent = parts[0];  // "1.2 MB / 9.9 MB"
-          }
-          if (parts.length >= 2) {
-            progressSpeed.textContent = parts[1];   // "⚡ 0.9 MB/s"
-          } else {
-            progressSpeed.textContent = '';
-          }
-          if (parts.length >= 3) {
-            progressEta.textContent = parts[2];     // "~5s"
-          } else {
-            progressEta.textContent = '';
+          // Parse status parts: "1.2 MB / 9.9 MB · ⚡ 0.9 MB/s · ~5s"
+          if (job.status) {
+            const parts = job.status.split('·').map(s => s.trim()).filter(Boolean);
+            progressStatus.textContent = parts[0] || job.status;
+            progressSpeed.textContent = parts[1] || '';
+            progressEta.textContent = parts[2] || '';
           }
 
           if (job.done) {
