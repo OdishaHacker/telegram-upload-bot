@@ -796,17 +796,24 @@
           const res = await fetch(`${API_BASE}/progress/${job_id}`);
           const job = await res.json();
 
+          // Update progress bar
           progressFill.style.width = job.percent + '%';
           progressPct.textContent = job.percent + '%';
-          progressStatus.textContent = job.status;
 
-          // Parse speed and eta from status
-          const parts = job.status.split('·');
+          // Parse MB info and speed/eta from status
+          // Format: "1.2 MB / 9.9 MB  ·  ⚡ 0.9 MB/s  ·  ~5s"
+          const parts = job.status.split('·').map(s => s.trim());
+          if (parts.length >= 1) {
+            progressStatus.textContent = parts[0];  // "1.2 MB / 9.9 MB"
+          }
           if (parts.length >= 2) {
-            progressSpeed.textContent = parts[1] ? parts[1].trim() : '';
-            progressEta.textContent = parts[2] ? parts[2].trim() : '';
+            progressSpeed.textContent = parts[1];   // "⚡ 0.9 MB/s"
           } else {
             progressSpeed.textContent = '';
+          }
+          if (parts.length >= 3) {
+            progressEta.textContent = parts[2];     // "~5s"
+          } else {
             progressEta.textContent = '';
           }
 
