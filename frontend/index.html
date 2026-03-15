@@ -783,17 +783,12 @@
     uploadBtn.disabled = true;
     hideError();
 
-    const progressWrap = document.getElementById('progressWrap');
-    const progressFill = document.getElementById('progressFill');
-    const progressStatus = document.getElementById('progressStatus');
-    const progressPct = document.getElementById('progressPct');
-    const progressSpeed = document.getElementById('progressSpeed');
-    const progressEta = document.getElementById('progressEta');
-
     progressWrap.classList.add('show');
+
+    // Reset bars
     document.getElementById('serverFill').style.width = '0%';
     document.getElementById('serverPct').textContent = '0%';
-    document.getElementById('serverStatus').textContent = 'Waiting...';
+    document.getElementById('serverStatus').textContent = 'Starting...';
     document.getElementById('serverSpeed').textContent = '';
     document.getElementById('telegramFill').style.width = '0%';
     document.getElementById('telegramPct').textContent = '0%';
@@ -802,75 +797,122 @@
 
     const formData = new FormData();
     formData.append('file', selectedFile);
+    const totalSize = selectedFile.size;
+    const totalMB = (totalSize / (1024 * 1024)).toFixed(1);
 
-    try {
-      const uploadResp = await fetch(`${API_BASE}/upload`, {
-        method: 'POST',
-        body: formData,
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      let uploadStartTime = null;
+      let lastLoaded = 0;
+      let lastTime = null;
+
+      // ✅ NATIVE BROWSER UPLOAD PROGRESS — fires on every chunk!
+      xhr.upload.addEventListener('loadstart', () => {
+        uploadStartTime = Date.now();
+        lastTime = uploadStartTime;
       });
 
-      if (!uploadResp.ok) {
-        const err = await uploadResp.json();
-        throw new Error(err.detail || 'Upload failed');
-      }
+      xhr.upload.addEventListener('progress', (e) => {
+        if (!e.lengthComputable) return;
 
-      const { job_id } = await uploadResp.json();
+        const now = Date.now();
+        const elapsed = (now - lastTime) / 1000;
+        const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
+        const mbDone = (e.loaded / (1024 * 1024)).toFixed(1);
 
-      // Poll every 400ms for real-time progress
-      const pollInterval = setInterval(async () => {
+        // Calculate speed
+        let speedStr = '';
+        if (elapsed > 0.1) {
+          const diff = e.loaded - lastLoaded;
+          const speed = (diff / elapsed) / (1024 * 1024);
+          speedStr = speed > 0.01 ? '⚡ ' + speed.toFixed(1) + ' MB/s' : '';
+          lastLoaded = e.loaded;
+          lastTime = now;
+        }
+
+        // Update Phone → Server bar in real-time!
+        document.getElementById('serverFill').style.width = pct + '%';
+        document.getElementById('serverPct').textContent = pct + '%';
+        document.getElementById('serverStatus').textContent = mbDone + ' / ' + totalMB + ' MB';
+        document.getElementById('serverSpeed').textContent = speedStr;
+      });
+
+      xhr.upload.addEventListener('load', () => {
+        // Phase 1 complete
+        document.getElementById('serverFill').style.width = '100%';
+        document.getElementById('serverPct').textContent = '100%';
+        document.getElementById('serverStatus').textContent = totalMB + ' MB ✓';
+        document.getElementById('serverSpeed').textContent = '';
+        document.getElementById('telegramStatus').textContent = 'Connecting...';
+      });
+
+      // Response handler — get job_id then poll for Telegram progress
+      xhr.addEventListener('load', async () => {
         try {
-          const res = await fetch(`${API_BASE}/progress/${job_id}`);
-          const job = await res.json();
-
-          // Update Server bar
-          const sPct = job.server_pct || 0;
-          document.getElementById('serverFill').style.width = sPct + '%';
-          document.getElementById('serverPct').textContent = sPct + '%';
-          document.getElementById('serverStatus').textContent = job.server_status || '';
-          document.getElementById('serverSpeed').textContent = job.server_speed || '';
-
-          // Update Telegram bar
-          const tPct = job.telegram_pct || 0;
-          document.getElementById('telegramFill').style.width = tPct + '%';
-          document.getElementById('telegramPct').textContent = tPct + '%';
-          document.getElementById('telegramStatus').textContent = job.telegram_status || '';
-          document.getElementById('telegramSpeed').textContent = job.telegram_speed || '';
-
-          if (job.done) {
-            clearInterval(pollInterval);
-
-            if (job.error) {
-              progressWrap.classList.remove('show');
-              uploadBtn.disabled = false;
-              showError('Upload error: ' + job.error);
-            } else {
-              // Mark both 100%
-              document.getElementById('serverFill').style.width = '100%';
-              document.getElementById('serverPct').textContent = '100%';
-              document.getElementById('serverStatus').textContent = '✓ Done';
-              document.getElementById('telegramFill').style.width = '100%';
-              document.getElementById('telegramPct').textContent = '100%';
-              document.getElementById('telegramStatus').textContent = '✓ Done';
-
-              // Instantly show result + file list — no delay!
-              progressWrap.classList.remove('show');
-              document.getElementById('serverFill').style.width = '0%';
-              document.getElementById('telegramFill').style.width = '0%';
-              uploadBtn.disabled = false;
-              showResult(job.result);
-              clearFile();
-              loadFiles();
-            }
+          const data = JSON.parse(xhr.responseText);
+          if (!data.job_id) {
+            throw new Error(data.detail || 'Upload failed');
           }
-        } catch (e) {}
-      }, 50);
 
-    } catch (err) {
-      progressWrap.classList.remove('show');
-      uploadBtn.disabled = false;
-      showError(err.message || 'Connection failed.');
-    }
+          const job_id = data.job_id;
+
+          // Poll for Telegram upload progress
+          const pollInterval = setInterval(async () => {
+            try {
+              const res = await fetch(`${API_BASE}/progress/${job_id}`);
+              const job = await res.json();
+
+              // Update Telegram bar only
+              const tPct = job.telegram_pct || 0;
+              document.getElementById('telegramFill').style.width = tPct + '%';
+              document.getElementById('telegramPct').textContent = tPct + '%';
+              document.getElementById('telegramStatus').textContent = job.telegram_status || '';
+              document.getElementById('telegramSpeed').textContent = job.telegram_speed || '';
+
+              if (job.done) {
+                clearInterval(pollInterval);
+                if (job.error) {
+                  progressWrap.classList.remove('show');
+                  uploadBtn.disabled = false;
+                  showError('Upload error: ' + job.error);
+                } else {
+                  document.getElementById('telegramFill').style.width = '100%';
+                  document.getElementById('telegramPct').textContent = '100%';
+                  document.getElementById('telegramStatus').textContent = '✓ Done';
+
+                  progressWrap.classList.remove('show');
+                  document.getElementById('serverFill').style.width = '0%';
+                  document.getElementById('telegramFill').style.width = '0%';
+                  uploadBtn.disabled = false;
+                  showResult(job.result);
+                  clearFile();
+                  loadFiles();
+                }
+                resolve();
+              }
+            } catch(e) {}
+          }, 300);
+
+        } catch(err) {
+          progressWrap.classList.remove('show');
+          uploadBtn.disabled = false;
+          showError(err.message || 'Upload failed');
+          resolve();
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        progressWrap.classList.remove('show');
+        uploadBtn.disabled = false;
+        showError('Connection failed.');
+        resolve();
+      });
+
+      xhr.open('POST', `${API_BASE}/upload`);
+      xhr.send(formData);
+    });
   }
+
 
   function showResult(data) {
     document.getElementById('downloadLink').textContent = data.download_link;
