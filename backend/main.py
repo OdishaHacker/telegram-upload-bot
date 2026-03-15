@@ -402,13 +402,17 @@ async def download_file(short_id: str):
         log(f"❌ DOWNLOAD ERROR | {str(e)}")
         raise HTTPException(status_code=500, detail=f"Download error: {str(e)}")
 
+    filename_encoded = entry["filename"].replace('"', '\"')
     return StreamingResponse(
         stream_from_telegram(),
         headers={
-            "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
+            "Content-Disposition": f'attachment; filename="{filename_encoded}"; filename*=UTF-8''{filename_encoded}',
             "Content-Type": entry["content_type"],
             "Content-Length": str(file_size),
+            "X-Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
         media_type=entry["content_type"]
     )
