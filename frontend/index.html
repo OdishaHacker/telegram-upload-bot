@@ -841,29 +841,29 @@
 
             if (job.error) {
               progressWrap.classList.remove('show');
-              progressFill.style.width = '0%';
               uploadBtn.disabled = false;
               showError('Upload error: ' + job.error);
             } else {
-              progressFill.style.width = '100%';
-              progressPct.textContent = '100%';
-              progressStatus.textContent = '✓ Upload complete!';
-              progressSpeed.textContent = '';
-              progressEta.textContent = '';
+              // Mark both 100%
+              document.getElementById('serverFill').style.width = '100%';
+              document.getElementById('serverPct').textContent = '100%';
+              document.getElementById('serverStatus').textContent = '✓ Done';
+              document.getElementById('telegramFill').style.width = '100%';
+              document.getElementById('telegramPct').textContent = '100%';
+              document.getElementById('telegramStatus').textContent = '✓ Done';
 
-              setTimeout(() => {
-                progressWrap.classList.remove('show');
-                document.getElementById('serverFill').style.width = '0%';
-                document.getElementById('telegramFill').style.width = '0%';
-                uploadBtn.disabled = false;
-                showResult(job.result);
-                clearFile();
-                loadFiles();
-              }, 800);
+              // Instantly show result + file list — no delay!
+              progressWrap.classList.remove('show');
+              document.getElementById('serverFill').style.width = '0%';
+              document.getElementById('telegramFill').style.width = '0%';
+              uploadBtn.disabled = false;
+              showResult(job.result);
+              clearFile();
+              loadFiles();
             }
           }
         } catch (e) {}
-      }, 400);
+      }, 50);
 
     } catch (err) {
       progressWrap.classList.remove('show');
