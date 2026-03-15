@@ -771,9 +771,11 @@
     const progressEta = document.getElementById('progressEta');
 
     progressWrap.classList.add('show');
-    progressFill.style.width = '2%';
-    progressStatus.textContent = 'Uploading...';
+    progressFill.style.width = '1%';
+    progressStatus.textContent = 'Starting...';
     progressPct.textContent = '0%';
+    document.getElementById('progressSpeed').textContent = '';
+    document.getElementById('progressEta').textContent = '';
 
     const formData = new FormData();
     formData.append('file', selectedFile);
