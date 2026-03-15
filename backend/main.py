@@ -160,17 +160,20 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
                 eta_str = ""
                 speed_str = ""
 
-            status = f"{mb_done:.1f} MB / {mb_total:.1f} MB"
-            if speed_str:
-                status += f"  ·  ⚡ {speed_str}"
-            if eta_str:
-                status += f"  ·  {eta_str}"
-
-            log(f"⬆️  {pct}% | {status}")
+            tg_status = f"{mb_done:.1f} / {mb_total:.1f} MB"
+            log(f"📡 Telegram {pct}% | {tg_status} | ⚡ {speed_str}")
 
             upload_jobs[job_id] = {
                 "percent": pct,
-                "status": status,
+                "status": "Uploading to Telegram...",
+                "server_pct": 100,
+                "server_status": f"{mb_total:.1f} MB received ✓",
+                "server_speed": "",
+                "server_eta": "",
+                "telegram_pct": pct,
+                "telegram_status": tg_status,
+                "telegram_speed": speed_str,
+                "telegram_eta": eta_str,
                 "done": False,
                 "error": None
             }
@@ -207,6 +210,14 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
         upload_jobs[job_id] = {
             "percent": 100,
             "status": "Upload complete!",
+            "server_pct": 100,
+            "server_status": f"{mb_total:.1f} MB ✓",
+            "server_speed": "",
+            "server_eta": "",
+            "telegram_pct": 100,
+            "telegram_status": f"{mb_total:.1f} MB ✓",
+            "telegram_speed": "",
+            "telegram_eta": "",
             "done": True,
             "error": None,
             "result": {
@@ -267,19 +278,26 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
             last_log_bytes = received
 
             if total_size > 0:
-                pct = min(45, max(1, int((received / total_size) * 45)))
+                pct = min(99, max(1, int((received / total_size) * 100)))
                 mb_done = received / (1024 * 1024)
                 mb_total = total_size / (1024 * 1024)
                 eta = ((total_size - received) / (1024*1024)) / recv_speed if recv_speed > 0 else 0
                 eta_str = f"~{int(eta)}s" if eta < 60 else f"~{int(eta/60)}m"
-                status = f"{mb_done:.1f} MB / {mb_total:.1f} MB  ·  ⚡ {recv_speed:.1f} MB/s  ·  {eta_str}"
                 upload_jobs[job_id] = {
-                    "percent": pct,
-                    "status": status,
+                    "percent": 0,
+                    "status": "Uploading...",
+                    "server_pct": pct,
+                    "server_status": f"{mb_done:.1f} / {mb_total:.1f} MB",
+                    "server_speed": f"⚡ {recv_speed:.1f} MB/s",
+                    "server_eta": eta_str,
+                    "telegram_pct": 0,
+                    "telegram_status": "Waiting...",
+                    "telegram_speed": "",
+                    "telegram_eta": "",
                     "done": False,
                     "error": None
                 }
-                log(f"📥 {pct}% | {status}")
+                log(f"📥 Server {pct}% | {mb_done:.1f}/{mb_total:.1f} MB | ⚡ {recv_speed:.1f} MB/s")
 
     file_content = b"".join(chunks)
     file_size = len(file_content)
@@ -292,8 +310,16 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
     upload_jobs[job_id] = {
-        "percent": 46,
-        "status": f"Uploading to Telegram...",
+        "percent": 0,
+        "status": "Uploading to Telegram...",
+        "server_pct": 100,
+        "server_status": f"{file_size/(1024*1024):.1f} MB received ✓",
+        "server_speed": "",
+        "server_eta": "",
+        "telegram_pct": 0,
+        "telegram_status": "Connecting...",
+        "telegram_speed": "",
+        "telegram_eta": "",
         "done": False,
         "error": None
     }
