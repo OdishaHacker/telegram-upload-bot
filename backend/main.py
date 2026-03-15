@@ -12,7 +12,7 @@ import httpx
 import time
 
 import sys
-LOG_FILE = "/app/telestore.log"
+LOG_FILE = "/tmp/telestore.log"
 
 def log(msg):
     import datetime
