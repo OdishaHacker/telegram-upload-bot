@@ -19,8 +19,6 @@ def log(msg):
     line = f"{datetime.datetime.now().strftime('%H:%M:%S')} | {msg}\n"
     sys.stderr.write(line)
     sys.stderr.flush()
-    sys.stdout.write(line)
-    sys.stdout.flush()
     try:
         with open(LOG_FILE, "a") as f:
             f.write(line)
@@ -307,7 +305,7 @@ async def download_file(short_id: str):
                 if chunk_count[0] % 50 == 0:
                     mb_sent = bytes_sent[0] / (1024*1024)
                     log(f"📊 Progress: {mb_sent:.1f}MB / {file_size_mb:.1f}MB sent")
-                yield chunk
+                yield bytes(chunk)  # convert memoryview to bytes
             log(f"✅ DOWNLOAD COMPLETE | {file_size_mb:.1f}MB | total time={time.time()-t_start:.2f}s")
 
     except Exception as e:
