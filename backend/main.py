@@ -44,7 +44,7 @@ API_HASH    = os.getenv("API_HASH", "")
 CHANNEL_ID  = int(os.getenv("CHANNEL_ID", "0"))
 BASE_URL    = os.getenv("BASE_URL", "http://localhost:9500")
 SESSION_STR = os.getenv("SESSION_STRING", "")
-DB_FILE     = "/app/files_db.json"
+DB_FILE     = "/app/data/files_db.json"
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 if FRONTEND_DIR.exists():
