@@ -630,6 +630,10 @@
       <div class="progress-bar-bg">
         <div class="progress-bar-fill" id="progressFill"></div>
       </div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;">
+        <span id="progressSpeed" style="font-family:'DM Mono',monospace;font-size:11px;color:#5b6ef5;"></span>
+        <span id="progressEta" style="font-family:'DM Mono',monospace;font-size:11px;color:#6b6b80;"></span>
+      </div>
     </div>
 
     <div class="error-card" id="errorCard"></div>
@@ -762,17 +766,18 @@
     const progressFill = document.getElementById('progressFill');
     const progressStatus = document.getElementById('progressStatus');
     const progressPct = document.getElementById('progressPct');
+    const progressSpeed = document.getElementById('progressSpeed');
+    const progressEta = document.getElementById('progressEta');
 
     progressWrap.classList.add('show');
     progressFill.style.width = '2%';
-    progressStatus.textContent = 'Starting upload...';
+    progressStatus.textContent = 'Uploading...';
     progressPct.textContent = '0%';
 
-    try {
-      // Step 1: Send file to backend, get job_id instantly
-      const formData = new FormData();
-      formData.append('file', selectedFile);
+    const formData = new FormData();
+    formData.append('file', selectedFile);
 
+    try {
       const uploadResp = await fetch(`${API_BASE}/upload`, {
         method: 'POST',
         body: formData,
@@ -785,20 +790,25 @@
 
       const { job_id } = await uploadResp.json();
 
-      // Step 2: Poll /progress/:job_id every 800ms
+      // Poll every 400ms for real-time progress
       const pollInterval = setInterval(async () => {
         try {
           const res = await fetch(`${API_BASE}/progress/${job_id}`);
           const job = await res.json();
 
-          // Update progress bar
           progressFill.style.width = job.percent + '%';
           progressPct.textContent = job.percent + '%';
           progressStatus.textContent = job.status;
 
-          // Update speed and ETA
-          if (job.speed) document.getElementById('progressSpeed').textContent = '⚡ ' + job.speed;
-          if (job.eta) document.getElementById('progressEta').textContent = job.eta;
+          // Parse speed and eta from status
+          const parts = job.status.split('·');
+          if (parts.length >= 2) {
+            progressSpeed.textContent = parts[1] ? parts[1].trim() : '';
+            progressEta.textContent = parts[2] ? parts[2].trim() : '';
+          } else {
+            progressSpeed.textContent = '';
+            progressEta.textContent = '';
+          }
 
           if (job.done) {
             clearInterval(pollInterval);
@@ -812,12 +822,12 @@
               progressFill.style.width = '100%';
               progressPct.textContent = '100%';
               progressStatus.textContent = '✓ Upload complete!';
+              progressSpeed.textContent = '';
+              progressEta.textContent = '';
 
               setTimeout(() => {
                 progressWrap.classList.remove('show');
                 progressFill.style.width = '0%';
-                document.getElementById('progressSpeed').textContent = '';
-                document.getElementById('progressEta').textContent = '';
                 uploadBtn.disabled = false;
                 showResult(job.result);
                 clearFile();
@@ -825,15 +835,13 @@
               }, 800);
             }
           }
-        } catch (e) {
-          // polling error — keep trying
-        }
-      }, 800);
+        } catch (e) {}
+      }, 400);
 
     } catch (err) {
       progressWrap.classList.remove('show');
       uploadBtn.disabled = false;
-      showError(err.message || 'Connection failed. Is the backend running?');
+      showError(err.message || 'Connection failed.');
     }
   }
 
