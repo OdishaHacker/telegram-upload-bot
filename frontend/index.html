@@ -861,12 +861,12 @@
     try {
       const resp = await fetch(`${API_BASE}/sync`);
       const data = await resp.json();
-      btn.textContent = `Sync ↺`;
+      btn.textContent = `Sync 🔄`;
       btn.style.color = '#22d3a5';
-      setTimeout(() => { btn.style.color = '#f87171'; btn.textContent = 'Sync ↺'; }, 2000);
+      setTimeout(() => { btn.style.color = '#f87171'; btn.textContent = 'Sync 🔄'; }, 2000);
       loadFiles();
     } catch (e) {
-      btn.textContent = 'Sync ↺';
+      btn.textContent = 'Sync 🔄';
       btn.style.color = '#f87171';
     }
   }
