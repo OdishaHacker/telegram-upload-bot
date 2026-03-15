@@ -17,14 +17,16 @@ from telethon.sessions import StringSession
 
 LOG_FILE = "/tmp/telestore.log"
 
+# Force all output to stderr so Coolify Logs tab shows everything
+sys.stdout = sys.stderr
+
 def log(msg):
     import datetime
-    line = f"{datetime.datetime.now().strftime('%H:%M:%S')} | {msg}\n"
-    sys.stderr.write(line)
-    sys.stderr.flush()
+    line = f"{datetime.datetime.now().strftime('%H:%M:%S')} | {msg}"
+    print(line, flush=True)
     try:
         with open(LOG_FILE, "a") as f:
-            f.write(line)
+            f.write(line + "\n")
     except:
         pass
 
