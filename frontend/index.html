@@ -880,6 +880,8 @@
     document.getElementById('resultCard').classList.add('show');
     document.getElementById('copyBtn').textContent = 'Copy';
     document.getElementById('copyBtn').classList.remove('copied');
+    // Scroll to result
+    document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function copyLink() {
