@@ -227,25 +227,78 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(request: Request, file: UploadFile = File(...)):
     if not BOT_TOKEN or not API_ID or not API_HASH or not CHANNEL_ID:
         raise HTTPException(status_code=500, detail="Missing config")
 
-    file_content = await file.read()
+    job_id = str(uuid.uuid4())[:12]
+    filename = file.filename
+    content_type = file.content_type or "application/octet-stream"
+    
+    # Get total size from header for progress calculation
+    content_length = request.headers.get("content-length", "0")
+    total_size = int(content_length) if content_length.isdigit() else 0
+
+    upload_jobs[job_id] = {
+        "percent": 1,
+        "status": "Receiving file...",
+        "done": False,
+        "error": None
+    }
+
+    log(f"⬆️  RECEIVE START | {filename} | declared={total_size/(1024*1024):.1f}MB")
+
+    # Stream file from browser chunk by chunk — no waiting for full file
+    t_recv_start = time.time()
+    chunks = []
+    received = 0
+    last_log_time = t_recv_start
+    last_log_bytes = 0
+
+    async for chunk in file:
+        chunks.append(chunk)
+        received += len(chunk)
+
+        now = time.time()
+        elapsed = now - last_log_time
+        if elapsed >= 0.4:
+            recv_speed = (received - last_log_bytes) / elapsed / (1024 * 1024)
+            last_log_time = now
+            last_log_bytes = received
+
+            if total_size > 0:
+                pct = min(45, max(1, int((received / total_size) * 45)))
+                mb_done = received / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024)
+                eta = ((total_size - received) / (1024*1024)) / recv_speed if recv_speed > 0 else 0
+                eta_str = f"~{int(eta)}s" if eta < 60 else f"~{int(eta/60)}m"
+                status = f"{mb_done:.1f} MB / {mb_total:.1f} MB  ·  ⚡ {recv_speed:.1f} MB/s  ·  {eta_str}"
+                upload_jobs[job_id] = {
+                    "percent": pct,
+                    "status": status,
+                    "done": False,
+                    "error": None
+                }
+                log(f"📥 {pct}% | {status}")
+
+    file_content = b"".join(chunks)
     file_size = len(file_content)
+    recv_time = time.time() - t_recv_start
+    recv_speed_avg = file_size / recv_time / (1024*1024) if recv_time > 0 else 0
+
+    log(f"📥 RECEIVE DONE | {file_size/(1024*1024):.1f}MB | {recv_time:.1f}s | avg {recv_speed_avg:.1f} MB/s")
 
     if file_size > 2 * 1024 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
-    job_id = str(uuid.uuid4())[:12]
-    mb = file_size / (1024 * 1024)
     upload_jobs[job_id] = {
-        "percent": 2,
-        "status": f"File ready ({mb:.1f} MB) — connecting...",
+        "percent": 46,
+        "status": f"Uploading to Telegram...",
         "done": False,
         "error": None
     }
-    asyncio.create_task(do_upload(job_id, file_content, file.filename, file.content_type or "application/octet-stream"))
+
+    asyncio.create_task(do_upload(job_id, file_content, filename, content_type))
     return JSONResponse({"job_id": job_id})
 
 
