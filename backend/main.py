@@ -250,22 +250,31 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     content_length = request.headers.get("content-length", "0")
     total_size = int(content_length) if content_length.isdigit() else 0
 
+    mb_total_declared = total_size / (1024 * 1024) if total_size > 0 else 0
     upload_jobs[job_id] = {
-        "percent": 1,
-        "status": "Receiving file...",
+        "percent": 0,
+        "status": "Receiving...",
+        "server_pct": 1,
+        "server_status": f"0.0 / {mb_total_declared:.1f} MB",
+        "server_speed": "",
+        "server_eta": "",
+        "telegram_pct": 0,
+        "telegram_status": "Waiting...",
+        "telegram_speed": "",
+        "telegram_eta": "",
         "done": False,
         "error": None
     }
 
-    log(f"⬆️  RECEIVE START | {filename} | declared={total_size/(1024*1024):.1f}MB")
+    log(f"⬆️  RECEIVE START | {filename} | {mb_total_declared:.1f}MB")
 
-    # Read file in chunks using spooled read
+    # Read file in 64KB chunks — update progress as each chunk arrives
     t_recv_start = time.time()
     chunks = []
     received = 0
-    last_log_time = t_recv_start
-    last_log_bytes = 0
-    CHUNK_SIZE = 64 * 1024  # 64KB per read
+    last_update_time = t_recv_start
+    last_update_bytes = 0
+    CHUNK_SIZE = 64 * 1024  # 64KB
 
     while True:
         chunk = await file.read(CHUNK_SIZE)
@@ -275,33 +284,37 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         received += len(chunk)
 
         now = time.time()
-        elapsed = now - last_log_time
-        if elapsed >= 0.4:
-            recv_speed = (received - last_log_bytes) / elapsed / (1024 * 1024)
-            last_log_time = now
-            last_log_bytes = received
+        elapsed = now - last_update_time
+        if elapsed >= 0.3:  # Update every 300ms
+            recv_speed = (received - last_update_bytes) / elapsed / (1024 * 1024)
+            last_update_time = now
+            last_update_bytes = received
 
             if total_size > 0:
                 pct = min(99, max(1, int((received / total_size) * 100)))
-                mb_done = received / (1024 * 1024)
-                mb_total = total_size / (1024 * 1024)
-                eta = ((total_size - received) / (1024*1024)) / recv_speed if recv_speed > 0 else 0
-                eta_str = f"~{int(eta)}s" if eta < 60 else f"~{int(eta/60)}m"
-                upload_jobs[job_id] = {
-                    "percent": 0,
-                    "status": "Uploading...",
-                    "server_pct": pct,
-                    "server_status": f"{mb_done:.1f} / {mb_total:.1f} MB",
-                    "server_speed": f"⚡ {recv_speed:.1f} MB/s",
-                    "server_eta": eta_str,
-                    "telegram_pct": 0,
-                    "telegram_status": "Waiting...",
-                    "telegram_speed": "",
-                    "telegram_eta": "",
-                    "done": False,
-                    "error": None
-                }
-                log(f"📥 Server {pct}% | {mb_done:.1f}/{mb_total:.1f} MB | ⚡ {recv_speed:.1f} MB/s")
+            else:
+                pct = 50  # Unknown size
+
+            mb_done = received / (1024 * 1024)
+            mb_total = total_size / (1024 * 1024) if total_size > 0 else mb_done
+            eta = ((total_size - received) / (1024 * 1024)) / recv_speed if (recv_speed > 0 and total_size > 0) else 0
+            eta_str = f"~{int(eta)}s" if 0 < eta < 60 else (f"~{int(eta/60)}m" if eta >= 60 else "")
+
+            upload_jobs[job_id] = {
+                "percent": 0,
+                "status": "Receiving...",
+                "server_pct": pct,
+                "server_status": f"{mb_done:.1f} / {mb_total:.1f} MB",
+                "server_speed": f"⚡ {recv_speed:.1f} MB/s" if recv_speed > 0 else "",
+                "server_eta": eta_str,
+                "telegram_pct": 0,
+                "telegram_status": "Waiting...",
+                "telegram_speed": "",
+                "telegram_eta": "",
+                "done": False,
+                "error": None
+            }
+            log(f"📥 {pct}% | {mb_done:.1f}/{mb_total:.1f} MB | ⚡ {recv_speed:.1f} MB/s")
 
     file_content = b"".join(chunks)
     file_size = len(file_content)
