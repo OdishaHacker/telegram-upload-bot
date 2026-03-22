@@ -164,14 +164,23 @@ async def do_upload(job_id: str, tmp_path: str, filename: str, content_type: str
                 "telegram_eta": eta_str
             })
 
+                # Yahan hum file ko direct send karne ke bajaye pehle manually upload kar rahe hain
+        # part_size_kb=512 Telegram ki max limit hai, isse speed sabse fast milti hai.
+        
+        uploaded_file = await client.upload_file(
+            tmp_path,
+            part_size_kb=512, 
+            progress_callback=progress_callback
+        )
+
+        # File Telegram ke server par chali gayi hai, ab bas usko channel me forward karna hai
         message = await client.send_file(
             CHANNEL_ID,
-            tmp_path,
+            uploaded_file,
             caption=f"📁 {filename}\n💾 {format_size(file_size)}",
-            force_document=True,
-            progress_callback=progress_callback,
-            workers=16,
+            force_document=True
         )
+
 
         total_time = time.time() - t_start
         avg_speed = mb_total / total_time if total_time > 0 else 0
