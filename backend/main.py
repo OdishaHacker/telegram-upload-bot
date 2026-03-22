@@ -170,7 +170,7 @@ async def do_upload(job_id: str, tmp_path: str, filename: str, content_type: str
             caption=f"📁 {filename}\n💾 {format_size(file_size)}",
             force_document=True,
             progress_callback=progress_callback,
-            workers=4,
+            workers=16,
         )
 
         total_time = time.time() - t_start
