@@ -9,7 +9,6 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import httpx
 import sys
 
 from telethon import TelegramClient
@@ -118,19 +117,12 @@ async def root():
     return HTMLResponse(content="<h1>TeleStore Running</h1>")
 
 
-async def do_upload(job_id: str, file_content: bytes, filename: str, content_type: str):
-    file_size = len(file_content)
+async def do_upload(job_id: str, tmp_path: str, filename: str, content_type: str):
+    file_size = os.path.getsize(tmp_path)
     mb_total = file_size / (1024 * 1024)
-    suffix = Path(filename).suffix or ".bin"
-    tmp_path = None
 
     try:
         upload_jobs[job_id].update({"percent": 5, "status": f"Connecting to Telegram..."})
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(file_content)
-            tmp_path = tmp.name
-
         t_start = time.time()
         log(f"⬆️  UPLOAD START | {filename} | {mb_total:.1f}MB")
         client = await get_client()
@@ -161,22 +153,16 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
                 speed_str = ""
 
             tg_status = f"{mb_done:.1f} / {mb_total:.1f} MB"
-            log(f"📡 Telegram {pct}% | {tg_status} | ⚡ {speed_str}")
-
-            upload_jobs[job_id] = {
+            
+            # Progress sirf har 0.5 sec me update ho raha hai (optimized)
+            upload_jobs[job_id].update({
                 "percent": pct,
                 "status": "Uploading to Telegram...",
-                "server_pct": 100,
-                "server_status": f"{mb_total:.1f} MB received ✓",
-                "server_speed": "",
-                "server_eta": "",
                 "telegram_pct": pct,
                 "telegram_status": tg_status,
                 "telegram_speed": speed_str,
-                "telegram_eta": eta_str,
-                "done": False,
-                "error": None
-            }
+                "telegram_eta": eta_str
+            })
 
         message = await client.send_file(
             CHANNEL_ID,
@@ -207,7 +193,7 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
         }
         save_db(db)
 
-        upload_jobs[job_id] = {
+        upload_jobs[job_id].update({
             "percent": 100,
             "status": "Upload complete!",
             "server_pct": 100,
@@ -227,14 +213,16 @@ async def do_upload(job_id: str, file_content: bytes, filename: str, content_typ
                 "download_link": f"{BASE_URL}/download/{short_id}",
                 "short_id": short_id
             }
-        }
+        })
 
     except Exception as e:
         log(f"❌ UPLOAD ERROR | {str(e)}")
-        upload_jobs[job_id] = {"percent": 0, "status": "Failed", "done": True, "error": str(e)}
+        upload_jobs[job_id].update({"percent": 0, "status": "Failed", "done": True, "error": str(e)})
     finally:
+        # Ye line ensure karti hai ki upload hone ya fail hone ke baad file SSD se hamesha delete ho jaye
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+            log(f"🗑️ Cleaned up temporary file: {tmp_path}")
 
 
 @app.post("/upload")
@@ -245,8 +233,8 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     job_id = str(uuid.uuid4())[:12]
     filename = file.filename
     content_type = file.content_type or "application/octet-stream"
+    suffix = Path(filename).suffix or ".bin"
     
-    # Get total size from header for progress calculation
     content_length = request.headers.get("content-length", "0")
     total_size = int(content_length) if content_length.isdigit() else 0
 
@@ -268,73 +256,64 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
 
     log(f"⬆️  RECEIVE START | {filename} | {mb_total_declared:.1f}MB")
 
-    # Read file in 64KB chunks — update progress as each chunk arrives
     t_recv_start = time.time()
-    chunks = []
     received = 0
     last_update_time = t_recv_start
     last_update_bytes = 0
     CHUNK_SIZE = 64 * 1024  # 64KB
 
-    while True:
-        chunk = await file.read(CHUNK_SIZE)
-        if not chunk:
-            break
-        chunks.append(chunk)
-        received += len(chunk)
+    # File ko RAM ke bajaye direct SSD par temp file me save kar rahe hain
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_path = tmp.name
 
-        now = time.time()
-        elapsed = now - last_update_time
+    try:
+        while True:
+            chunk = await file.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            
+            tmp.write(chunk)
+            received += len(chunk)
 
-        # Calculate speed
-        if elapsed > 0:
-            recv_speed = (received - last_update_bytes) / elapsed / (1024 * 1024)
-        else:
-            recv_speed = 0
+            now = time.time()
+            elapsed = now - last_update_time
 
-        # Update every chunk — no time limit!
-        last_update_time = now
-        last_update_bytes = received
+            if elapsed >= 0.5:
+                recv_speed = (received - last_update_bytes) / elapsed / (1024 * 1024)
+                last_update_time = now
+                last_update_bytes = received
 
-        if total_size > 0:
-            pct = min(99, max(1, int((received / total_size) * 100)))
-        else:
-            pct = min(99, max(1, int((received / (1024*1024)) * 10)))
+                if total_size > 0:
+                    pct = min(99, max(1, int((received / total_size) * 100)))
+                else:
+                    pct = min(99, max(1, int((received / (1024*1024)) * 10)))
 
-        mb_done = received / (1024 * 1024)
-        mb_total = total_size / (1024 * 1024) if total_size > 0 else mb_done
-        eta = ((total_size - received) / (1024 * 1024)) / recv_speed if (recv_speed > 0 and total_size > 0) else 0
-        eta_str = f"~{int(eta)}s" if 0 < eta < 60 else (f"~{int(eta/60)}m" if eta >= 60 else "")
+                mb_done = received / (1024 * 1024)
+                mb_total = total_size / (1024 * 1024) if total_size > 0 else mb_done
+                eta = ((total_size - received) / (1024 * 1024)) / recv_speed if (recv_speed > 0 and total_size > 0) else 0
+                eta_str = f"~{int(eta)}s" if 0 < eta < 60 else (f"~{int(eta/60)}m" if eta >= 60 else "")
 
-        upload_jobs[job_id] = {
-            "percent": 0,
-            "status": "Receiving...",
-            "server_pct": pct,
-            "server_status": f"{mb_done:.1f} / {mb_total:.1f} MB",
-            "server_speed": f"⚡ {recv_speed:.1f} MB/s" if recv_speed > 0.01 else "",
-            "server_eta": eta_str,
-            "telegram_pct": 0,
-            "telegram_status": "Waiting...",
-            "telegram_speed": "",
-            "telegram_eta": "",
-            "done": False,
-            "error": None
-        }
+                upload_jobs[job_id].update({
+                    "server_pct": pct,
+                    "server_status": f"{mb_done:.1f} / {mb_total:.1f} MB",
+                    "server_speed": f"⚡ {recv_speed:.1f} MB/s" if recv_speed > 0.01 else "",
+                    "server_eta": eta_str
+                })
+    finally:
+        tmp.close()
 
-    file_content = b"".join(chunks)
-    file_size = len(file_content)
+    file_size = os.path.getsize(tmp_path)
     recv_time = time.time() - t_recv_start
     recv_speed_avg = file_size / recv_time / (1024*1024) if recv_time > 0 else 0
 
     log(f"📥 RECEIVE DONE | {file_size/(1024*1024):.1f}MB | {recv_time:.1f}s | avg {recv_speed_avg:.1f} MB/s")
 
     if file_size > 2 * 1024 * 1024 * 1024:
+        os.unlink(tmp_path)
         raise HTTPException(status_code=400, detail="File too large. Max 2GB.")
 
     mb_size = file_size / (1024 * 1024)
-    # Always force server bar to 100% after receive
-    upload_jobs[job_id] = {
-        "percent": 0,
+    upload_jobs[job_id].update({
         "status": "Uploading to Telegram...",
         "server_pct": 100,
         "server_status": f"{mb_size:.1f} MB ✓",
@@ -344,11 +323,10 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         "telegram_status": "Connecting to Telegram...",
         "telegram_speed": "",
         "telegram_eta": "",
-        "done": False,
-        "error": None
-    }
+    })
 
-    asyncio.create_task(do_upload(job_id, file_content, filename, content_type))
+    # Background me Telegram upload start karna
+    asyncio.create_task(do_upload(job_id, tmp_path, filename, content_type))
     return JSONResponse({"job_id": job_id})
 
 
