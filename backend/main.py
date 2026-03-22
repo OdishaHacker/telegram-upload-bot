@@ -260,7 +260,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
     received = 0
     last_update_time = t_recv_start
     last_update_bytes = 0
-    CHUNK_SIZE = 64 * 1024  # 64KB
+    CHUNK_SIZE = 2 * 1024 * 1024  # 2MB chunks (Mobile network ke liye best)
 
     # File ko RAM ke bajaye direct SSD par temp file me save kar rahe hain
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
